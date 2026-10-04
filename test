@@ -1,0 +1,98 @@
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ 🔍 KUBERNETES INCIDENT INVESTIGATION                                        │
+├──────────────────────────────────────────────────────────────────────────────┤
+│                                                                              │
+│ INCIDENT   Container Image Pull Failure                                      │
+│ STATUS     🔴 INCIDENT_IMAGE_PULL                                            │
+│ SEVERITY   🔴 HIGH                                                           │
+│ CONFIDENCE 🟢 98%                                                            │
+│                                                                              │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ SUMMARY                                                                      │
+│                                                                              │
+│ Kubernetes failed to pull the container image.                               │
+│                                                                              │
+│ Detected condition:                                                         │
+│   ImagePullBackOff / ErrImagePull                                            │
+│                                                                              │
+│ The kubelet cannot download the requested image from the container           │
+│ registry.                                                                    │
+│                                                                              │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ ROOT CAUSE                                                                   │
+│                                                                              │
+│ Container Image Pull Failure                                                 │
+│                                                                              │
+│ The image reference could not be resolved:                                   │
+│                                                                              │
+│   Image:    nginx123:latest                                                  │
+│   Registry: docker.io/library                                                 │
+│                                                                              │
+│ Possible causes:                                                             │
+│   • Invalid image name or tag                                                │
+│   • Repository does not exist                                                │
+│   • Missing registry authentication                                          │
+│                                                                              │
+│ Diagnostic signature: K8S_IMAGE_PULL_001                                     │
+│                                                                              │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ 🔎 EVIDENCE                                                                  │
+├──────────────────────────────────────────────────────────────────────────────┤
+│                                                                              │
+│ Normal   Pulling                                                             │
+│ kubelet  Pulling image "nginx123"                                            │
+│                                                                              │
+│ Warning  Failed                                                              │
+│ kubelet  Failed to pull image "nginx123"                                     │
+│          → docker.io/library/nginx123:latest                                │
+│          → pull access denied                                                │
+│          → repository does not exist or may require authorization            │
+│          → insufficient_scope: authorization failed                          │
+│                                                                              │
+│ Warning  Failed                                                              │
+│ kubelet  Error: ErrImagePull                                                 │
+│                                                                              │
+│ Normal   BackOff                                                             │
+│ kubelet  Back-off pulling image "nginx123"                                   │
+│                                                                              │
+│ Warning  Failed                                                              │
+│ kubelet  Error: ImagePullBackOff                                              │
+│                                                                              │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ 📌 IMPACT                                                                    │
+│                                                                              │
+│ HIGH                                                                         │
+│                                                                              │
+│ The workload cannot start because its container image is unavailable.        │
+│ This directly affects pod availability and may cause service disruption.     │
+│                                                                              │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ 🛠 REMEDIATION                                                               │
+├──────────────────────────────────────────────────────────────────────────────┤
+│                                                                              │
+│ 1. VERIFY IMAGE REFERENCE                                                    │
+│                                                                              │
+│ kubectl get pod <pod-name> -n <namespace> \                                 │
+│   -o jsonpath='{.spec.containers[*].image}'                                 │
+│                                                                              │
+│ Verify that the image name and tag actually exist in the registry.           │
+│                                                                              │
+│ 2. CHECK REGISTRY AUTHENTICATION                                             │
+│                                                                              │
+│ imagePullSecrets:                                                            │
+│   - name: regcred                                                            │
+│                                                                              │
+│ Required when pulling images from a private registry.                        │
+│                                                                              │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ 🤖 AI INVESTIGATION RESULT                                                   │
+│                                                                              │
+│ Root Cause:  IMAGE_PULL                                                      │
+│ Confidence: 98%                                                             │
+│ Evidence:   EV-001                                                          │
+│ Signature:  K8S_IMAGE_PULL_001                                               │
+│                                                                              │
+│ Diagnosis: The kubelet is unable to pull "nginx123:latest" from             │
+│ docker.io/library. Verify the image reference and registry credentials.      │
+│                                                                              │
+└──────────────────────────────────────────────────────────────────────────────┘
