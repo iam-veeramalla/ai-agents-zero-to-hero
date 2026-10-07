@@ -203,6 +203,7 @@ my_env.tfvars
 .saved_chats
 .env
 .google-agents-cli/
+deployment_metadata.json.lock
 
 # A2A Inspector
 tools/a2a-inspector/

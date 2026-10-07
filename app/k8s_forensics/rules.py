@@ -350,4 +350,184 @@ RULES: List[DiagnosticRule] = [
             ),
         ],
     ),
+
+    # 10. CPU THROTTLING
+    DiagnosticRule(
+        rule_id="K8S_CPU_001",
+        category=IssueCategory.CPU_THROTTLING,
+        title="Container CPU Throttling (CFS Quota Throttled)",
+        severity=SeverityLevel.HIGH,
+        pattern=re.compile(
+            r"(CPU throttling detected|container.*throttled|throttled_time|nr_throttled|cfs_quota exceeded|CPU quota exceeded|throttled periods:\s*[1-9]\d*|high CPU throttling)",
+            re.IGNORECASE,
+        ),
+        explanation="The container exceeded its configured CPU CFS quota limit, causing the Linux kernel scheduler to throttle process execution cycles and introduce severe latency.",
+        confidence=0.95,
+        remediations=[
+            RemediationStep(
+                order=1,
+                action="Increase or remove CPU limits in deployment specification",
+                type="immediate",
+                command_or_yaml="resources:\n  requests:\n    cpu: \"1000m\"\n  limits:\n    cpu: \"2000m\"",
+                rationale="Prevents Linux Completely Fair Scheduler (CFS) quota throttling from penalizing active worker threads.",
+            ),
+            RemediationStep(
+                order=2,
+                action="Profile CPU utilization and thread concurrency",
+                type="investigative",
+                command_or_yaml="kubectl top pod <pod-name> -n <namespace> --containers",
+                rationale="Identifies compute-heavy processing loops or thread starvation within the container.",
+            ),
+        ],
+    ),
+
+    # 11. NODE MEMORY PRESSURE
+    DiagnosticRule(
+        rule_id="K8S_NODE_MEM_001",
+        category=IssueCategory.NODE_MEMORY_PRESSURE,
+        title="Node Memory Pressure & Pod Eviction",
+        severity=SeverityLevel.CRITICAL,
+        pattern=re.compile(
+            r"(NodeHasMemoryPressure|eviction manager: evicting pod.*due to node memory pressure|The node was low on resource: memory|Node condition MemoryPressure is True|status:\s*MemoryPressure)",
+            re.IGNORECASE,
+        ),
+        explanation="The Kubernetes worker node is experiencing severe memory exhaustion exceeding kubelet eviction thresholds, triggering pod eviction.",
+        confidence=0.97,
+        remediations=[
+            RemediationStep(
+                order=1,
+                action="Inspect node memory utilization and describe node conditions",
+                type="investigative",
+                command_or_yaml="kubectl describe node <node-name> | grep -A 8 Conditions",
+                rationale="Confirms MemoryPressure condition and allocatable memory status.",
+            ),
+            RemediationStep(
+                order=2,
+                action="Add node capacity or evict BestEffort workloads",
+                type="immediate",
+                command_or_yaml="kubectl drain <node-name> --ignore-daemonsets --delete-emptydir-data",
+                rationale="Relieves memory pressure on the affected node and redistributes pods across healthy nodes.",
+            ),
+        ],
+    ),
+
+    # 12. NODE NOT READY
+    DiagnosticRule(
+        rule_id="K8S_NODE_NOTREADY_001",
+        category=IssueCategory.NODE_NOT_READY,
+        title="Kubernetes Node in NotReady State",
+        severity=SeverityLevel.CRITICAL,
+        pattern=re.compile(
+            r"(NodeNotReady|Node condition Ready is False|Kubelet stopped posting node status|PLEG is not healthy|container runtime is down|Node status is NotReady|Node.*NotReady)",
+            re.IGNORECASE,
+        ),
+        explanation="The worker node has transitioned to NotReady status because kubelet stopped posting heartbeats or the container runtime became unresponsive.",
+        confidence=0.98,
+        remediations=[
+            RemediationStep(
+                order=1,
+                action="Check kubelet and container runtime service logs on worker node",
+                type="investigative",
+                command_or_yaml="systemctl status kubelet containerd",
+                rationale="Identifies systemd crashes, disk stalls, or PLEG timeouts causing kubelet failure.",
+            ),
+            RemediationStep(
+                order=2,
+                action="Restart kubelet and verify node network communication",
+                type="immediate",
+                command_or_yaml="systemctl restart kubelet",
+                rationale="Restores node heartbeat reporting to kube-apiserver.",
+            ),
+        ],
+    ),
+
+    # 13. INCORRECT RESOURCE REQUESTS / LIMITS
+    DiagnosticRule(
+        rule_id="K8S_RES_001",
+        category=IssueCategory.RESOURCE_LIMITS,
+        title="Resource Requests Exceeding Node Capacity or Namespace Quota",
+        severity=SeverityLevel.HIGH,
+        pattern=re.compile(
+            r"(Insufficient cpu|Insufficient memory|exceeded quota: compute-resources|request is greater than limit|failed quota|exceeded quota: requests\.(?:cpu|memory)|0/\d+ nodes are available: \d+ Insufficient)",
+            re.IGNORECASE,
+        ),
+        explanation="Pod cannot be scheduled or admitted because its requested CPU or memory exceeds available node capacity or the namespace ResourceQuota limits.",
+        confidence=0.96,
+        remediations=[
+            RemediationStep(
+                order=1,
+                action="Right-size container resource requests to match cluster node allocatable capacity",
+                type="immediate",
+                command_or_yaml="resources:\n  requests:\n    cpu: \"250m\"\n    memory: \"256Mi\"\n  limits:\n    cpu: \"500m\"\n    memory: \"512Mi\"",
+                rationale="Ensures pod fits within available node capacity and satisfies namespace ResourceQuotas.",
+            ),
+            RemediationStep(
+                order=2,
+                action="Check namespace ResourceQuotas and node allocatable resources",
+                type="investigative",
+                command_or_yaml="kubectl get resourcequota -n <namespace>",
+                rationale="Reveals used vs hard limits for CPU and memory in the namespace.",
+            ),
+        ],
+    ),
+
+    # 14. SERVICE HAS NO ENDPOINTS
+    DiagnosticRule(
+        rule_id="K8S_SVC_ENDPOINTS_001",
+        category=IssueCategory.SERVICE_NO_ENDPOINTS,
+        title="Kubernetes Service Has No Endpoints",
+        severity=SeverityLevel.HIGH,
+        pattern=re.compile(
+            r"(Endpoints:\s*<none>|no endpoints available for service|Service has no endpoints|0 endpoints available|failed to find endpoints for service|no healthy endpoints)",
+            re.IGNORECASE,
+        ),
+        explanation="The Kubernetes Service has 0 active endpoints. Either no pods match the Service's spec.selector or matching pods are failing readiness probes.",
+        confidence=0.96,
+        remediations=[
+            RemediationStep(
+                order=1,
+                action="Verify Service selector matches Pod labels",
+                type="investigative",
+                command_or_yaml="kubectl get svc <service-name> -n <namespace> -o jsonpath='{.spec.selector}'\nkubectl get pods --show-labels -n <namespace>",
+                rationale="Confirms whether selector label keys and values match the workload pod labels.",
+            ),
+            RemediationStep(
+                order=2,
+                action="Check readiness probe status of target pods",
+                type="investigative",
+                command_or_yaml="kubectl get pods -l <selector-key>=<selector-value> -n <namespace> -o wide",
+                rationale="Determines whether pods are running but unready (0/1 Ready).",
+            ),
+        ],
+    ),
+
+    # 15. SERVICE ROUTES TO WRONG / UNHEALTHY PODS
+    DiagnosticRule(
+        rule_id="K8S_SVC_ROUTING_001",
+        category=IssueCategory.SERVICE_ROUTING,
+        title="Service Routing to Wrong or Unhealthy Pods",
+        severity=SeverityLevel.HIGH,
+        pattern=re.compile(
+            r"(traffic routed to wrong pod|targetPort mismatch|selector.*matches unexpected pods|Service routing to unhealthy pod|Endpoints:\s*.*\(NotReady\)|upstream connect error.*502 Bad Gateway|Service selector mismatch)",
+            re.IGNORECASE,
+        ),
+        explanation="Traffic is being routed to incorrect or unready pods due to overly broad selector labels or mismatched targetPort definitions.",
+        confidence=0.93,
+        remediations=[
+            RemediationStep(
+                order=1,
+                action="Disambiguate Service selector labels and verify targetPort",
+                type="immediate",
+                command_or_yaml="spec:\n  selector:\n    app.kubernetes.io/name: <app>\n    app.kubernetes.io/version: <v2>\n  ports:\n  - port: 80\n    targetPort: 8080",
+                rationale="Prevents traffic bleed into canary or unintended deployments and ensures port alignment.",
+            ),
+            RemediationStep(
+                order=2,
+                action="Inspect active Service endpoints and target pod addresses",
+                type="investigative",
+                command_or_yaml="kubectl get endpoints <service-name> -n <namespace> -o yaml",
+                rationale="Shows the exact IP addresses and readiness ports registered behind the Service.",
+            ),
+        ],
+    ),
 ]

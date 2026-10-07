@@ -1,29 +1,257 @@
 {
   "eval_cases": [
     {
-      "eval_case_id": "greeting",
+      "eval_case_id": "k8s-oom-killed-payment-processor",
       "prompt": {
         "role": "user",
-        "parts": [{"text": "Hello, what can you help me with?"}]
-      }
-    },
-    {
-      "eval_case_id": "weather_query",
-      "prompt": {
-        "role": "user",
-        "parts": [{"text": "What's the weather like in San Francisco?"}]
-      }
-    },
-    {
-      "eval_case_id": "capital_lookup",
-      "prompt": {
-        "role": "user",
-        "parts": [{"text": "What is the capital of France?"}]
+        "parts": [
+          {
+            "text": "Investigate pod payment-processor-7c6d88f9b4-w9k2z in default namespace. Here are the container logs:\n2026-09-22T10:14:02.102Z stdout F [INFO] Starting PaymentService v2.4.1\n2026-09-22T10:14:45.301Z stdout F [WARN] High heap memory utilization detected: 92% of 512MB used\n2026-09-22T10:15:10.114Z stdout F [WARN] Full GC pause time 3420ms exceeding threshold\n2026-09-22T10:15:22.502Z stderr F java.lang.OutOfMemoryError: Java heap space\n2026-09-22T10:15:24.019Z stderr F [FATAL] cgroup out of memory: Killed process 42 (java) total-vm:845320kB, anon-rss:524288kB, file-rss:0kB\n2026-09-22T10:15:24.120Z stderr F Container payment-processor terminated with exit code 137 (OOMKilled)"
+          }
+        ]
       },
       "reference": {
         "response": {
           "role": "model",
-          "parts": [{"text": "The capital of France is Paris."}]
+          "parts": [
+            {
+              "text": "┌──────────────────────────────────────────────────────────────────────────────┐\n│ 🔍 KUBERNETES INCIDENT INVESTIGATION                                        │\n├──────────────────────────────────────────────────────────────────────────────┤\n│                                                                              │\n│ INCIDENT   Container Terminated Due to OOMKilled (Exit Code 137)             │\n│ STATUS     🔴 INCIDENT_OOM                                                   │\n│ SEVERITY   🔴 CRITICAL                                                       │\n│ CONFIDENCE 🟢 98%                                                            │\n│                                                                              │\n├──────────────────────────────────────────────────────────────────────────────┤\n│ SUMMARY                                                                      │\n│                                                                              │\n│ Container payment-processor exceeded its cgroup memory limit resulting in   │\n│ termination by the Linux kernel OOM killer with exit code 137.               │\n│                                                                              │\n│ Detected condition:                                                          │\n│   OOMKilled / java.lang.OutOfMemoryError                                     │\n│                                                                              │\n│ Workload payment-processor terminated abruptly during payment batch.         │\n│                                                                              │\n├──────────────────────────────────────────────────────────────────────────────┤\n│ ROOT CAUSE                                                                   │\n│                                                                              │\n│ Container Memory Exhaustion (OOMKilled)                                      │\n│                                                                              │\n│ The container exceeded its configured cgroup memory limit of 512MiB. Java    │\n│ heap allocation failed with OutOfMemoryError before kernel OOM killer killed │\n│ the process.                                                                 │\n│                                                                              │\n│ Possible causes:                                                             │\n│   • Inadequate container memory limit (512MiB) for batch workload             │\n│   • JVM heap not aligned with container cgroup limits                        │\n│   • Potential memory leak during batch payment settlement                    │\n│                                                                              │\n│ Diagnostic signature: K8S_OOM_001 / JAVA_OOM_002                             │\n│                                                                              │\n├──────────────────────────────────────────────────────────────────────────────┤\n│ 🔎 EVIDENCE                                                                  │\n├──────────────────────────────────────────────────────────────────────────────┤\n│                                                                              │\n│ Line 4: [WARN] High heap memory utilization detected: 92% of 512MB used      │\n│ Line 6: java.lang.OutOfMemoryError: Java heap space                          │\n│ Line 11: cgroup out of memory: Killed process 42 (java) total-vm:845320kB     │\n│ Line 12: Container payment-processor terminated with exit code 137 (OOMKilled)│\n│                                                                              │\n├──────────────────────────────────────────────────────────────────────────────┤\n│ 📌 IMPACT                                                                    │\n│                                                                              │\n│ CRITICAL                                                                     │\n│                                                                              │\n│ Pod restart loop and interrupted batch settlement transactions.              │\n│                                                                              │\n├──────────────────────────────────────────────────────────────────────────────┤\n│ 🛠 REMEDIATION                                                               │\n├──────────────────────────────────────────────────────────────────────────────┤\n│                                                                              │\n│ 1. INCREASE POD MEMORY LIMITS                                                │\n│                                                                              │\n│ resources:                                                                   │\n│   limits:                                                                    │\n│     memory: \"1Gi\"                                                            │\n│   requests:                                                                  │\n│     memory: \"512Mi\"                                                          │\n│                                                                              │\n│ 2. TUNE JVM CONTAINER HEAP PERCENTAGE                                        │\n│                                                                              │\n│ env:                                                                         │\n│   - name: JAVA_TOOL_OPTIONS                                                  │\n│     value: \"-XX:MaxRAMPercentage=75.0 -XX:+UseContainerSupport\"              │\n│                                                                              │\n├──────────────────────────────────────────────────────────────────────────────┤\n│ 🤖 AI INVESTIGATION RESULT                                                   │\n│                                                                              │\n│ Root Cause:  OOM_KILLED                                                      │\n│ Confidence: 98%                                                              │\n│ Evidence:   cgroup out of memory / exit code 137                             │\n│ Signature:  K8S_OOM_001                                                      │\n│                                                                              │\n│ Diagnosis: Container was terminated by kernel OOM killer after JVM heap was   │\n│ exhausted due to undersized memory limits.                                   │\n│                                                                              │\n└──────────────────────────────────────────────────────────────────────────────┘"
+            }
+          ]
+        }
+      },
+      "rubric_groups": {
+        "k8s_incident_rubrics": {
+          "rubrics": [
+            {
+              "rubric_id": "identifies_oom_killed",
+              "content": {
+                "property": {
+                  "description": "The response must identify the incident root cause as OOMKilled (Exit Code 137) or memory exhaustion."
+                }
+              }
+            },
+            {
+              "rubric_id": "prescribes_memory_increase",
+              "content": {
+                "property": {
+                  "description": "The response must recommend increasing memory limits/requests or tuning JVM memory flags."
+                }
+              }
+            },
+            {
+              "rubric_id": "tabular_boxed_format",
+              "content": {
+                "property": {
+                  "description": "The response must be formatted in the clean tabular/boxed incident investigation layout."
+                }
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "eval_case_id": "k8s-crashloop-db-connection-refused",
+      "prompt": {
+        "role": "user",
+        "parts": [
+          {
+            "text": "Investigate why pod order-service-59bc658cf-9xj7q is crashing in namespace default. Log output:\n2026-09-22T08:00:01.010Z [INFO] app.server - Booting order-service worker 1\n2026-09-22T08:00:02.145Z [INFO] app.db - Connecting to PostgreSQL at postgres-master.database.svc.cluster.local:5432\n2026-09-22T08:00:15.302Z [WARN] app.db - Database connection attempt 1 timed out after 10000ms. Retrying...\n2026-09-22T08:00:25.890Z [ERROR] app.db - Failed to establish connection to database\nTraceback (most recent call last):\n  File \"/app/db.py\", line 45, in connect\n    conn = psycopg2.connect(dsn=DATABASE_URL, connect_timeout=10)\npsycopg2.OperationalError: could not connect to server: Connection refused\n\tIs the server running on host \"postgres-master.database.svc.cluster.local\" (10.96.12.44) and accepting\n\tTCP/IP connections on port 5432?\n2026-09-22T08:00:30.012Z [ERROR] kubelet - Readiness probe failed: HTTP probe failed with statuscode: 500\n2026-09-22T08:00:32.400Z [FATAL] app.main - Unhandled Exception: DatabaseUnreachableError. Exiting with code 1.\n2026-09-22T08:00:33.100Z [INFO] kubelet - Back-off restarting failed container order-service in pod order-service-59bc658cf-9xj7q (CrashLoopBackOff)"
+          }
+        ]
+      },
+      "reference": {
+        "response": {
+          "role": "model",
+          "parts": [
+            {
+              "text": "┌──────────────────────────────────────────────────────────────────────────────┐\n│ 🔍 KUBERNETES INCIDENT INVESTIGATION                                        │\n├──────────────────────────────────────────────────────────────────────────────┤\n│                                                                              │\n│ INCIDENT   Pod in CrashLoopBackOff due to Database Connection Failure        │\n│ STATUS     🔴 INCIDENT_DATABASE_BACKEND                                      │\n│ SEVERITY   🔴 CRITICAL                                                       │\n│ CONFIDENCE 🟢 95%                                                            │\n│                                                                              │\n├──────────────────────────────────────────────────────────────────────────────┤\n│ SUMMARY                                                                      │\n│                                                                              │\n│ Container order-service crashed on startup because it could not connect to   │\n│ the PostgreSQL database at postgres-master.database.svc.cluster.local:5432, │\n│ entering CrashLoopBackOff.                                                   │\n│                                                                              │\n│ Detected condition:                                                          │\n│   CrashLoopBackOff / psycopg2.OperationalError: Connection refused           │\n│                                                                              │\n│ Workload order-service is down and failing readiness probes.                 │\n│                                                                              │\n├──────────────────────────────────────────────────────────────────────────────┤\n│ ROOT CAUSE                                                                   │\n│                                                                              │\n│ Downstream Database Dependency Unreachable (Connection Refused)              │\n│                                                                              │\n│ The application failed to establish a TCP socket connection to PostgreSQL on │\n│ port 5432. The database service is either down, uninitialized, or not        │\n│ accepting connections.                                                       │\n│                                                                              │\n│ Possible causes:                                                             │\n│   • postgres-master pod is crashed, restarting, or not running               │\n│   • PostgreSQL service port misconfiguration or missing endpoints            │\n│   • Restrictive NetworkPolicy blocking egress from default to database       │\n│                                                                              │\n│ Diagnostic signature: APP_DB_001 / K8S_CRASHLOOP_001                         │\n│                                                                              │\n├──────────────────────────────────────────────────────────────────────────────┤\n│ 🔎 EVIDENCE                                                                  │\n├──────────────────────────────────────────────────────────────────────────────┤\n│                                                                              │\n│ Line 7: psycopg2.OperationalError: could not connect to server: Connection   │\n│         refused (host: postgres-master.database.svc.cluster.local:5432)      │\n│ Line 10: Readiness probe failed: HTTP probe failed with statuscode: 500      │\n│ Line 12: Back-off restarting failed container order-service (CrashLoopBackOff│\n│                                                                              │\n├──────────────────────────────────────────────────────────────────────────────┤\n│ 📌 IMPACT                                                                    │\n│                                                                              │\n│ CRITICAL                                                                     │\n│                                                                              │\n│ Complete service outage for order creation and order processing.             │\n│                                                                              │\n├──────────────────────────────────────────────────────────────────────────────┤\n│ 🛠 REMEDIATION                                                               │\n├──────────────────────────────────────────────────────────────────────────────┤\n│                                                                              │\n│ 1. CHECK POSTGRESQL DATABASE PODS AND ENDPOINTS                             │\n│                                                                              │\n│ kubectl get pods,endpoints -n database -l app=postgres                       │\n│                                                                              │\n│ 2. VERIFY DATABASE LOGS                                                      │\n│                                                                              │\n│ kubectl logs -n database -l app=postgres --tail=100                          │\n│                                                                              │\n├──────────────────────────────────────────────────────────────────────────────┤\n│ 🤖 AI INVESTIGATION RESULT                                                   │\n│                                                                              │\n│ Root Cause:  DATABASE_BACKEND                                                │\n│ Confidence: 95%                                                              │\n│ Evidence:   psycopg2.OperationalError: Connection refused                    │\n│ Signature:  APP_DB_001                                                       │\n│                                                                              │\n│ Diagnosis: Order service is in CrashLoopBackOff because PostgreSQL at         │\n│ postgres-master.database.svc.cluster.local:5432 actively refused connections.│\n│                                                                              │\n└──────────────────────────────────────────────────────────────────────────────┘"
+            }
+          ]
+        }
+      },
+      "rubric_groups": {
+        "k8s_incident_rubrics": {
+          "rubrics": [
+            {
+              "rubric_id": "identifies_db_connection_failure",
+              "content": {
+                "property": {
+                  "description": "The response must identify that the crash is caused by database connection refusal / PostgreSQL unavailability."
+                }
+              }
+            },
+            {
+              "rubric_id": "prescribes_db_troubleshooting",
+              "content": {
+                "property": {
+                  "description": "The response must recommend verifying database pods, services, and endpoints."
+                }
+              }
+            },
+            {
+              "rubric_id": "tabular_boxed_format",
+              "content": {
+                "property": {
+                  "description": "The response must be formatted in the clean tabular/boxed incident investigation layout."
+                }
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "eval_case_id": "k8s-imagepullbackoff-missing-tag",
+      "prompt": {
+        "role": "user",
+        "parts": [
+          {
+            "text": "Investigate container startup failure for pod checkout-web-84f7b6487-k2m9p in production namespace. Events:\nNormal   Scheduled  4m ago  default-scheduler  Successfully assigned production/checkout-web-84f7b6487-k2m9p to gke-node-pool-1\nNormal   Pulling    4m ago  kubelet            Pulling image \"gcr.io/my-company-org/checkout-service:v3.1.0-release\"\nWarning  Failed     3m ago  kubelet            Failed to pull image \"gcr.io/my-company-org/checkout-service:v3.1.0-release\": rpc error: code = NotFound desc = failed to pull and unpack image: manifest unknown\nWarning  Failed     3m ago  kubelet            Error: ErrImagePull\nNormal   BackOff    2m ago  kubelet            Back-off pulling image \"gcr.io/my-company-org/checkout-service:v3.1.0-release\"\nWarning  Failed     2m ago  kubelet            Error: ImagePullBackOff"
+          }
+        ]
+      },
+      "reference": {
+        "response": {
+          "role": "model",
+          "parts": [
+            {
+              "text": "┌──────────────────────────────────────────────────────────────────────────────┐\n│ 🔍 KUBERNETES INCIDENT INVESTIGATION                                        │\n├──────────────────────────────────────────────────────────────────────────────┤\n│                                                                              │\n│ INCIDENT   Container Image Pull Failure (ImagePullBackOff / ErrImagePull)    │\n│ STATUS     🔴 INCIDENT_IMAGE_PULL                                            │\n│ SEVERITY   🔴 HIGH                                                           │\n│ CONFIDENCE 🟢 98%                                                            │\n│                                                                              │\n├──────────────────────────────────────────────────────────────────────────────┤\n│ SUMMARY                                                                      │\n│                                                                              │\n│ Kubelet failed to pull container image                                       │\n│ gcr.io/my-company-org/checkout-service:v3.1.0-release due to manifest       │\n│ unknown error, causing pod to enter ImagePullBackOff.                        │\n│                                                                              │\n│ Detected condition:                                                          │\n│   ImagePullBackOff / ErrImagePull                                            │\n│                                                                              │\n│ Checkout service pod cannot start and cannot serve user traffic.             │\n│                                                                              │\n├──────────────────────────────────────────────────────────────────────────────┤\n│ ROOT CAUSE                                                                   │\n│                                                                              │\n│ Container Image Tag Not Found (Manifest Unknown)                             │\n│                                                                              │\n│ The container runtime queried the container registry for image tag           │\n│ v3.1.0-release, but the registry responded with NotFound (manifest unknown). │\n│                                                                              │\n│ Possible causes:                                                             │\n│   • Non-existent or mistyped image tag in deployment manifest                │\n│   • CI/CD pipeline failed to publish image tag prior to deployment           │\n│   • Registry authentication credentials or imagePullSecrets missing          │\n│                                                                              │\n│ Diagnostic signature: K8S_IMAGE_PULL_001                                     │\n│                                                                              │\n├──────────────────────────────────────────────────────────────────────────────┤\n│ 🔎 EVIDENCE                                                                  │\n├──────────────────────────────────────────────────────────────────────────────┤\n│                                                                              │\n│ Warning Failed: Failed to pull image                                         │\n│         \"gcr.io/my-company-org/checkout-service:v3.1.0-release\":             │\n│         rpc error: code = NotFound desc = manifest unknown                   │\n│ Warning Failed: Error: ErrImagePull                                          │\n│ Warning Failed: Error: ImagePullBackOff                                      │\n│                                                                              │\n├──────────────────────────────────────────────────────────────────────────────┤\n│ 📌 IMPACT                                                                    │\n│                                                                              │\n│ HIGH                                                                         │\n│                                                                              │\n│ Pod blocked in pending state; rolling update halted.                         │\n│                                                                              │\n├──────────────────────────────────────────────────────────────────────────────┤\n│ 🛠 REMEDIATION                                                               │\n├──────────────────────────────────────────────────────────────────────────────┤\n│                                                                              │\n│ 1. VERIFY AVAILABLE TAGS IN REGISTRY                                         │\n│                                                                              │\n│ gcloud container images list-tags gcr.io/my-company-org/checkout-service     │\n│                                                                              │\n│ 2. ROLLBACK OR UPDATE DEPLOYMENT IMAGE                                       │\n│                                                                              │\n│ kubectl set image deployment/checkout-web checkout-service=<valid-image-tag> │\n│   -n production                                                              │\n│                                                                              │\n├──────────────────────────────────────────────────────────────────────────────┤\n│ 🤖 AI INVESTIGATION RESULT                                                   │\n│                                                                              │\n│ Root Cause:  IMAGE_PULL                                                      │\n│ Confidence: 98%                                                              │\n│ Evidence:   rpc error: code = NotFound desc = manifest unknown               │\n│ Signature:  K8S_IMAGE_PULL_001                                               │\n│                                                                              │\n│ Diagnosis: The container image tag 'v3.1.0-release' does not exist in the    │\n│ registry, triggering ImagePullBackOff.                                       │\n│                                                                              │\n└──────────────────────────────────────────────────────────────────────────────┘"
+            }
+          ]
+        }
+      },
+      "rubric_groups": {
+        "k8s_incident_rubrics": {
+          "rubrics": [
+            {
+              "rubric_id": "identifies_image_pull_failure",
+              "content": {
+                "property": {
+                  "description": "The response must identify the root cause as an image pull failure / ImagePullBackOff / missing manifest tag."
+                }
+              }
+            },
+            {
+              "rubric_id": "prescribes_image_fix",
+              "content": {
+                "property": {
+                  "description": "The response must recommend verifying the image tag in registry or rolling back the deployment."
+                }
+              }
+            },
+            {
+              "rubric_id": "tabular_boxed_format",
+              "content": {
+                "property": {
+                  "description": "The response must be formatted in the clean tabular/boxed incident investigation layout."
+                }
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "eval_case_id": "k8s-rbac-forbidden-vault-collector",
+      "prompt": {
+        "role": "user",
+        "parts": [
+          {
+            "text": "Investigate pod vault-collector-6d8b745f99-x7lnp in default namespace. Logs:\n2026-09-22T11:20:00.100Z [INFO] vault-agent - Initializing secrets sync sidecar\n2026-09-22T11:20:02.340Z [INFO] vault-agent - Authenticated with Kubernetes token for serviceaccount default/vault-collector\n2026-09-22T11:20:03.950Z [ERROR] vault-agent - Failed to synchronize API secrets from namespace default\n2026-09-22T11:20:03.951Z [ERROR] vault-agent - User \"system:serviceaccount:default:vault-collector\" cannot get resource \"secrets\" in API group \"\" in the namespace \"default\": 403 Forbidden\n2026-09-22T11:20:04.100Z [FATAL] vault-agent - Authorization failure is fatal. Exiting with status 1."
+          }
+        ]
+      },
+      "reference": {
+        "response": {
+          "role": "model",
+          "parts": [
+            {
+              "text": "┌──────────────────────────────────────────────────────────────────────────────┐\n│ 🔍 KUBERNETES INCIDENT INVESTIGATION                                        │\n├──────────────────────────────────────────────────────────────────────────────┤\n│                                                                              │\n│ INCIDENT   Kubernetes RBAC Authorization Denied (403 Forbidden)              │\n│ STATUS     🔴 INCIDENT_RBAC                                                  │\n│ SEVERITY   🔴 HIGH                                                           │\n│ CONFIDENCE 🟢 97%                                                            │\n│                                                                              │\n├──────────────────────────────────────────────────────────────────────────────┤\n│ SUMMARY                                                                      │\n│                                                                              │\n│ ServiceAccount vault-collector was denied permission to get secrets in       │\n│ namespace default with HTTP 403 Forbidden, causing fatal sidecar crash.      │\n│                                                                              │\n│ Detected condition:                                                          │\n│   RBAC 403 Forbidden / API Authorization Denied                              │\n│                                                                              │\n│ Secrets synchronization is halted, preventing secret injection.              │\n│                                                                              │\n├──────────────────────────────────────────────────────────────────────────────┤\n│ ROOT CAUSE                                                                   │\n│                                                                              │\n│ Missing RBAC Role / RoleBinding for ServiceAccount                           │\n│                                                                              │\n│ The pod's ServiceAccount system:serviceaccount:default:vault-collector lacks │\n│ the required Kubernetes RBAC permissions to perform 'get' on resource        │\n│ 'secrets'.                                                                   │\n│                                                                              │\n│ Possible causes:                                                             │\n│   • Missing RoleBinding linking ServiceAccount to required Role              │\n│   • Role lacks \"secrets\" in apiGroups \"\" with verb \"get\"                     │\n│   • ServiceAccount mistakenly deployed to wrong namespace                    │\n│                                                                              │\n│ Diagnostic signature: K8S_RBAC_001                                           │\n│                                                                              │\n├──────────────────────────────────────────────────────────────────────────────┤\n│ 🔎 EVIDENCE                                                                  │\n├──────────────────────────────────────────────────────────────────────────────┤\n│                                                                              │\n│ Line 4: User \"system:serviceaccount:default:vault-collector\" cannot get      │\n│         resource \"secrets\" in API group \"\" in namespace \"default\":           │\n│         403 Forbidden                                                        │\n│ Line 5: [FATAL] vault-agent - Authorization failure is fatal. Exiting with   │\n│         status 1.                                                            │\n│                                                                              │\n├──────────────────────────────────────────────────────────────────────────────┤\n│ 📌 IMPACT                                                                    │\n│                                                                              │\n│ HIGH                                                                         │\n│                                                                              │\n│ Dependent application cannot retrieve secrets, failing startup or authentication.│\n│                                                                              │\n├──────────────────────────────────────────────────────────────────────────────┤\n│ 🛠 REMEDIATION                                                               │\n├──────────────────────────────────────────────────────────────────────────────┤\n│                                                                              │\n│ 1. CREATE RBAC ROLE AND ROLEBINDING                                          │\n│                                                                              │\n│ apiVersion: rbac.authorization.k8s.io/v1                                     │\n│ kind: Role                                                                   │\n│ metadata:                                                                    │\n│   name: vault-secrets-reader                                                 │\n│   namespace: default                                                         │\n│ rules:                                                                       │\n│ - apiGroups: [\"\"]                                                            │\n│   resources: [\"secrets\"]                                                     │\n│   verbs: [\"get\", \"list\"]                                                     │\n│ ---                                                                          │\n│ apiVersion: rbac.authorization.k8s.io/v1                                     │\n│ kind: RoleBinding                                                            │\n│ metadata:                                                                    │\n│   name: vault-secrets-binding                                                │\n│   namespace: default                                                         │\n│ subjects:                                                                    │\n│ - kind: ServiceAccount                                                       │\n│   name: vault-collector                                                      │\n│   namespace: default                                                         │\n│ roleRef:                                                                     │\n│   kind: Role                                                                 │\n│   name: vault-secrets-reader                                                 │\n│   apiGroup: rbac.authorization.k8s.io                                        │\n│                                                                              │\n├──────────────────────────────────────────────────────────────────────────────┤\n│ 🤖 AI INVESTIGATION RESULT                                                   │\n│                                                                              │\n│ Root Cause:  RBAC_PERMISSION                                                 │\n│ Confidence: 97%                                                              │\n│ Evidence:   403 Forbidden for ServiceAccount vault-collector                 │\n│ Signature:  K8S_RBAC_001                                                     │\n│                                                                              │\n│ Diagnosis: The ServiceAccount lacks RBAC authorization to access secrets in   │\n│ namespace default.                                                           │\n│                                                                              │\n└──────────────────────────────────────────────────────────────────────────────┘"
+            }
+          ]
+        }
+      },
+      "rubric_groups": {
+        "k8s_incident_rubrics": {
+          "rubrics": [
+            {
+              "rubric_id": "identifies_rbac_forbidden",
+              "content": {
+                "property": {
+                  "description": "The response must identify the root cause as RBAC 403 Forbidden / missing ServiceAccount permissions for secrets."
+                }
+              }
+            },
+            {
+              "rubric_id": "prescribes_rbac_role",
+              "content": {
+                "property": {
+                  "description": "The response must provide a Role and RoleBinding granting permissions to the ServiceAccount."
+                }
+              }
+            },
+            {
+              "rubric_id": "tabular_boxed_format",
+              "content": {
+                "property": {
+                  "description": "The response must be formatted in the clean tabular/boxed incident investigation layout."
+                }
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "eval_case_id": "k8s-dns-lookup-failure",
+      "prompt": {
+        "role": "user",
+        "parts": [
+          {
+            "text": "Investigate DNS errors in inventory-sync-784f4dc79-p52qm in namespace production. Logs:\n{\"time\":\"2026-09-22T04:12:00.100Z\",\"level\":\"INFO\",\"msg\":\"Starting inventory sync service\"}\n{\"time\":\"2026-09-22T04:12:01.250Z\",\"level\":\"INFO\",\"msg\":\"Resolving catalog microservice DNS\"}\n{\"time\":\"2026-09-22T04:12:06.310Z\",\"level\":\"ERROR\",\"caller\":\"client.go:88\",\"msg\":\"Get \\\"http://catalog-service.production.svc.cluster.local:8080/v1/items\\\": dial tcp: lookup catalog-service.production.svc.cluster.local: no such host\"}\n{\"time\":\"2026-09-22T04:12:08.500Z\",\"level\":\"WARN\",\"caller\":\"retry.go:34\",\"msg\":\"DNS resolution failed for upstream, backing off 2s\"}\n{\"time\":\"2026-09-22T04:12:12.600Z\",\"level\":\"ERROR\",\"caller\":\"envoy.proxy:112\",\"msg\":\"upstream connect error or disconnect/reset before headers. reset reason: connection failure, transport failure reason: delayed_connect_error: 503 Service Unavailable\"}"
+          }
+        ]
+      },
+      "reference": {
+        "response": {
+          "role": "model",
+          "parts": [
+            {
+              "text": "┌──────────────────────────────────────────────────────────────────────────────┐\n│ 🔍 KUBERNETES INCIDENT INVESTIGATION                                        │\n├──────────────────────────────────────────────────────────────────────────────┤\n│                                                                              │\n│ INCIDENT   DNS Resolution Failure (Lookup / CoreDNS Timeout)                 │\n│ STATUS     🔴 INCIDENT_NETWORK_DNS                                           │\n│ SEVERITY   🔴 HIGH                                                           │\n│ CONFIDENCE 🟢 96%                                                            │\n│                                                                              │\n├──────────────────────────────────────────────────────────────────────────────┤\n│ SUMMARY                                                                      │\n│                                                                              │\n│ Application inventory-sync failed to resolve internal cluster DNS address    │\n│ catalog-service.production.svc.cluster.local (no such host).                 │\n│                                                                              │\n│ Detected condition:                                                          │\n│   dial tcp: lookup ... no such host / 503 Service Unavailable                │\n│                                                                              │\n│ Inventory sync fails to fetch upstream items from catalog service.           │\n│                                                                              │\n├──────────────────────────────────────────────────────────────────────────────┤\n│ ROOT CAUSE                                                                   │\n│                                                                              │\n│ Internal Cluster DNS Resolution Failure                                      │\n│                                                                              │\n│ The cluster resolver returned NXDOMAIN for internal domain                   │\n│ catalog-service.production.svc.cluster.local.                                │\n│                                                                              │\n│ Possible causes:                                                             │\n│   • Service 'catalog-service' does not exist in namespace 'production'       │\n│   • CoreDNS pods in kube-system are failing or overloaded                    │\n│   • Misconfigured ndots or dnsConfig in pod specification                    │\n│                                                                              │\n│ Diagnostic signature: K8S_DNS_001                                            │\n│                                                                              │\n├──────────────────────────────────────────────────────────────────────────────┤\n│ 🔎 EVIDENCE                                                                  │\n├──────────────────────────────────────────────────────────────────────────────┤\n│                                                                              │\n│ Line 3: dial tcp: lookup catalog-service.production.svc.cluster.local:       │\n│         no such host                                                         │\n│ Line 4: DNS resolution failed for upstream, backing off 2s                   │\n│ Line 5: upstream connect error or disconnect/reset before headers:           │\n│         503 Service Unavailable                                              │\n│                                                                              │\n├──────────────────────────────────────────────────────────────────────────────┤\n│ 📌 IMPACT                                                                    │\n│                                                                              │\n│ HIGH                                                                         │\n│                                                                              │\n│ Downstream catalog queries fail, disrupting inventory synchronization.       │\n│                                                                              │\n├──────────────────────────────────────────────────────────────────────────────┤\n│ 🛠 REMEDIATION                                                               │\n├──────────────────────────────────────────────────────────────────────────────┤\n│                                                                              │\n│ 1. VERIFY TARGET SERVICE AND ENDPOINTS                                       │\n│                                                                              │\n│ kubectl get svc catalog-service -n production                                │\n│                                                                              │\n│ 2. CHECK COREDNS RESOLVER HEALTH                                             │\n│                                                                              │\n│ kubectl get pods -n kube-system -l k8s-app=kube-dns                          │\n│ kubectl logs -n kube-system -l k8s-app=kube-dns --tail=50                   │\n│                                                                              │\n├──────────────────────────────────────────────────────────────────────────────┤\n│ 🤖 AI INVESTIGATION RESULT                                                   │\n│                                                                              │\n│ Root Cause:  NETWORK_DNS                                                     │\n│ Confidence: 96%                                                              │\n│ Evidence:   dial tcp: lookup: no such host                                   │\n│ Signature:  K8S_DNS_001                                                      │\n│                                                                              │\n│ Diagnosis: The application cannot resolve catalog-service in namespace       │\n│ production because the DNS record is missing or CoreDNS is unhealthy.        │\n│                                                                              │\n└──────────────────────────────────────────────────────────────────────────────┘"
+            }
+          ]
+        }
+      },
+      "rubric_groups": {
+        "k8s_incident_rubrics": {
+          "rubrics": [
+            {
+              "rubric_id": "identifies_dns_lookup_failure",
+              "content": {
+                "property": {
+                  "description": "The response must identify the root cause as DNS resolution failure / NXDOMAIN / unresolvable service hostname."
+                }
+              }
+            },
+            {
+              "rubric_id": "prescribes_dns_service_check",
+              "content": {
+                "property": {
+                  "description": "The response must recommend verifying the service existence with kubectl get svc and checking CoreDNS pods."
+                }
+              }
+            },
+            {
+              "rubric_id": "tabular_boxed_format",
+              "content": {
+                "property": {
+                  "description": "The response must be formatted in the clean tabular/boxed incident investigation layout."
+                }
+              }
+            }
+          ]
         }
       }
     }

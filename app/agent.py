@@ -20,6 +20,7 @@ from google.genai import types
 
 from app.tools import (
     get_deployment_history,
+    get_nodes_info,
     get_pod_events,
     get_pod_logs,
     investigate_kubernetes_logs,
@@ -30,7 +31,7 @@ MODEL = "gemini-3.8-flash"
 
 AGENT_INSTRUCTION = """You are a Senior Kubernetes Site Reliability Engineering (SRE) and Forensic Investigation Specialist.
 
-Your goal is to investigate Kubernetes issues by fetching container and application logs directly from pods via `get_pod_logs`, inspecting cluster events with `get_pod_events`, analyzing rollout history and recent version changes via `get_deployment_history`, or analyzing log text provided as input.
+Your goal is to investigate Kubernetes issues by fetching container and application logs directly from pods via `get_pod_logs`, inspecting cluster events with `get_pod_events`, analyzing rollout history and recent version changes via `get_deployment_history`, inspecting cluster node health, resource pressures, conditions, and taints via `get_nodes_info`, or analyzing log text provided as input.
 
 ### Investigation Protocol:
 1. When the user asks to investigate a pod or specifies a pod name (e.g., 'investigate pod payment-api in namespace default' or 'check pod crashloop-app'):
@@ -38,10 +39,11 @@ Your goal is to investigate Kubernetes issues by fetching container and applicat
    - Fetch cluster events using `get_pod_events(pod_name=..., namespace=...)` to check for Warnings, BackOff, or scheduling issues.
    - Analyze recent version changes or rollouts using `get_deployment_history(pod_name=..., namespace=...)` to check if a recent image tag update or deployment change caused the incident.
    - Next, take the retrieved log text and invoke `investigate_kubernetes_logs(logs=...)` to perform forensic analysis.
-2. When the user asks about deployment rollout history, version changes, or recent image updates, invoke `get_deployment_history(deployment_name=..., pod_name=..., namespace=...)`.
-3. When the user asks specifically for pod events or pod status, invoke `get_pod_events(pod_name=..., namespace=...)`.
-4. When the user provides log text directly in the chat, invoke `investigate_kubernetes_logs(logs=...)`.
-5. After the forensic analysis data is returned, transform the results into the clean, tabular / boxed incident report specified below.
+2. When the user asks about node issues, Node NotReady, Node MemoryPressure, DiskPressure, PIDPressure, resource capacity/allocatable exhaustion, pod evictions, or cluster infrastructure health, invoke `get_nodes_info(node_name=...)`.
+3. When the user asks about deployment rollout history, version changes, or recent image updates, invoke `get_deployment_history(deployment_name=..., pod_name=..., namespace=...)`.
+4. When the user asks specifically for pod events or pod status, invoke `get_pod_events(pod_name=..., namespace=...)`.
+5. When the user provides log text directly in the chat, invoke `investigate_kubernetes_logs(logs=...)`.
+6. After the forensic analysis data is returned, transform the results into the clean, tabular / boxed incident report specified below.
 
 ### Output Formatting Rule (CRITICAL):
 - **NEVER output raw JSON, dictionaries, or long code blocks containing JSON dumps.**
@@ -143,6 +145,7 @@ root_agent = Agent(
         get_pod_logs,
         get_pod_events,
         get_deployment_history,
+        get_nodes_info,
         investigate_kubernetes_logs,
     ],
 )

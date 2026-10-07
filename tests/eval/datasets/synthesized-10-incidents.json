@@ -1,0 +1,154 @@
+{
+  "eval_cases": [
+    {
+      "eval_case_id": "8363e6fc-7eac-4665-80b0-e5a0b613fe61",
+      "prompt": {
+        "role": "user",
+        "parts": [
+          {
+            "text": "Hi, I'm an on-call data scientist. My training job pod just died unexpectedly. It's called 'data-processor' in the 'backend' namespace. Can you figure out what happened to it?"
+          }
+        ]
+      },
+      "user_scenario": {
+        "starting_prompt": "Hi, I'm an on-call data scientist. My training job pod just died unexpectedly. It's called 'data-processor' in the 'backend' namespace. Can you figure out what happened to it?",
+        "conversation_plan": "1. The user simulator reports a dead pod ('data-processor') in the 'backend' namespace.\n2. If the agent asks for the container name, the user provides 'keras-trainer'.\n3. The user waits for the agent to conduct its full investigation (logs, events, deployment history, and log analysis) as required by the SOP.\n4. When the agent provides the boxed incident report, the user asks: 'How do I prevent this from happening next time I run this heavy training job? Can you give me the exact YAML patch to fix it?'\n5. If the agent outputs any raw JSON or unformatted dictionaries at any point, the user complains that the report is unreadable and requests the correct tabular format."
+      }
+    },
+    {
+      "eval_case_id": "753495e8-464c-4d01-b412-991e496f3749",
+      "prompt": {
+        "role": "user",
+        "parts": [
+          {
+            "text": "Hey, customers are complaining about huge latency spikes on our web portal. The 'frontend-web' pod in namespace 'default' seems super slow, but it hasn't actually crashed. What's wrong with it?"
+          }
+        ]
+      },
+      "user_scenario": {
+        "starting_prompt": "Hey, customers are complaining about huge latency spikes on our web portal. The 'frontend-web' pod seems super slow, but it hasn't actually crashed. What's wrong with it?",
+        "conversation_plan": "1. The user starts by reporting latency on the 'frontend-web' pod, intentionally omitting the namespace to test the agent's data collection.\n2. When the agent asks for the namespace, the user provides 'customer-facing'.\n3. The user waits for the agent to automatically investigate using logs, events, deployment history, and the log analysis tool.\n4. If the agent asks whether to check history or events, the user tells the agent to follow its standard procedure.\n5. When the agent provides the boxed incident report, the user asks for the exact configuration fix to remove the CPU bottleneck.\n6. If the agent fails to use the box-drawing format or outputs raw JSON, the user expresses confusion and asks for the standard tabular format."
+      }
+    },
+    {
+      "eval_case_id": "ead1f465-ab69-4316-8b2e-2464ba69ba00",
+      "prompt": {
+        "role": "user",
+        "parts": [
+          {
+            "text": "Hello, our payment gateway just went down hard. The pod 'payment-gateway-v2' in the 'finance' namespace is in a CrashLoopBackOff according to ArgoCD. I need a root cause analysis right now."
+          }
+        ]
+      },
+      "user_scenario": {
+        "starting_prompt": "Hello, our payment gateway just went down hard. The pod 'payment-gateway-v2' in the 'finance' namespace is in a CrashLoopBackOff according to ArgoCD. I need a root cause analysis right now.",
+        "conversation_plan": "1. The user forcefully reports a CrashLoopBackOff on 'payment-gateway-v2' in the 'finance' namespace.\n2. The user waits for the agent to perform its standard investigation steps.\n3. If the agent asks clarifying questions about whether to pull previous logs, the user insists that the agent should know what to do for a CrashLoopBackOff and tells it to hurry up.\n4. If the agent outputs any raw JSON, the user severely reprimands the agent and demands the formal incident report immediately.\n5. Once the boxed tabular report is generated, the user aggressively states: 'I need to know the EXACT application panic message or exit code that caused this, and what the immediate fix is.'\n6. The user evaluates if the agent provides the requested details clearly without breaking format."
+      }
+    },
+    {
+      "eval_case_id": "3604b9e5-2484-41fe-81a5-985e277adc18",
+      "prompt": {
+        "role": "user",
+        "parts": [
+          {
+            "text": "Hey, my pod 'auth-service' in the 'auth-prod' namespace keeps crashing over and over. I see a CrashLoopBackOff error. Can you figure out what's wrong?"
+          }
+        ]
+      },
+      "user_scenario": {
+        "starting_prompt": "Hey, my pod 'auth-service' in the 'security-ns' namespace keeps crashing over and over. I see a CrashLoopBackOff error. Can you figure out what's wrong?",
+        "conversation_plan": "1. Immediately after the start, the user realizes they provided the wrong namespace and will correct it by saying: 'Wait, sorry, the namespace is actually auth-prod, my bad.'\n2. The user will then wait for the agent to follow its strict protocol to fetch logs, events, and deployment history.\n3. If the agent asks for a container name, the user will respond with 'auth-container'.\n4. If the agent attempts to return raw JSON or dictionary dumps, the user will refuse it and demand the official boxed incident report format.\n5. Once the fully formatted boxed report is provided, the user will thank the agent and end the conversation."
+      }
+    },
+    {
+      "eval_case_id": "ea10eedd-0af7-4262-8282-3e08290b094e",
+      "prompt": {
+        "role": "user",
+        "parts": [
+          {
+            "text": "Hello, I'm the data engineer on call. Our 'data-processor' pod in the 'data-pipeline' namespace just disappeared and I suspect it got evicted. Could you check if there's Node MemoryPressure or something?"
+          }
+        ]
+      },
+      "user_scenario": {
+        "starting_prompt": "Hello, I'm the data engineer on call. Our 'data-processor' pod in the 'data-pipeline' namespace just disappeared and I suspect it got evicted. Could you check if there's Node MemoryPressure or something?",
+        "conversation_plan": "1. The user will wait for the agent to run through its full pod investigation protocol (fetching logs, events, deployment history, and log analysis).\n2. If the agent asks the user to manually provide the logs, the user will refuse and say 'I do not have the logs, please fetch them yourself using your tools.'\n3. The user will ask if the eviction was definitively caused by Node MemoryPressure based on the cluster events.\n4. If the agent outputs any raw JSON dumps, the user will complain: 'This is unreadable. Never output raw JSON. Please use the official tabular ASCII box report.'\n5. After the boxed report is generated, the user will explicitly ask for remediation steps on how to fix the resource limits."
+      }
+    },
+    {
+      "eval_case_id": "5d1b4bd7-94bd-41a7-b783-8eb0714c34e8",
+      "prompt": {
+        "role": "user",
+        "parts": [
+          {
+            "text": "Hi, I am looking at the 'checkout-redis-0' pod in the 'ecommerce' namespace. It's completely stuck. I pulled these logs manually: '2023-10-12 10:00:01 FATAL: out of memory. OOMKilled by kernel.' Can you run a forensic investigation on this text?"
+          }
+        ]
+      },
+      "user_scenario": {
+        "starting_prompt": "Hi, I am looking at the 'checkout-redis-0' pod in the 'ecommerce' namespace. It's completely stuck. I pulled these logs manually: '2023-10-12 10:00:01 FATAL: out of memory. OOMKilled by kernel.' Can you run a forensic investigation on this text?",
+        "conversation_plan": "1. The user provides raw log text directly in the chat for the agent to analyze.\n2. If the agent attempts to ask if it should use the 'get_pod_logs' tool, the user will say 'I already provided the logs in the chat, just use the investigate_kubernetes_logs tool on the text I gave you.'\n3. The user will wait for the agent to return the forensic analysis based solely on the provided text.\n4. If the agent's output is not formatted as the strict box-drawing table, the user will say 'Please redraw the report using the strict ASCII boxes as required by your protocol.'\n5. The user will confirm the report contains the exact diagnostic signature and then end the conversation."
+      }
+    },
+    {
+      "eval_case_id": "6ac65f21-f1b0-4e02-98cb-c785a7fdd27e",
+      "prompt": {
+        "role": "user",
+        "parts": [
+          {
+            "text": "Hey, my application pod 'inventory-service-abc12' in the 'prod-backend' namespace keeps restarting in a crash loop. It was perfectly fine until a couple of hours ago. Can you figure out why it's crashing?"
+          }
+        ]
+      },
+      "user_scenario": {
+        "starting_prompt": "Hey, my application pod 'inventory-service-abc12' keeps restarting in a crash loop. It was perfectly fine until a couple of hours ago. Can you figure out why it's crashing?",
+        "conversation_plan": "1. The user states that the 'inventory-service-abc12' pod keeps restarting, deliberately omitting the namespace to inject friction.\n2. When asked for the namespace, the user provides 'prod-backend'.\n3. If asked for a container name, the user provides 'inventory-app'.\n4. Once the agent completes its investigation and outputs the required ASCII incident report, the user asks: 'How exactly should I adjust the health check timeout or threshold in my Deployment YAML so it stops killing the pod during startup spikes?'\n5. The user ends the conversation after receiving a YAML remediation snippet."
+      }
+    },
+    {
+      "eval_case_id": "fa5c78d8-75d9-40c9-b4e2-8117a1cdbece",
+      "prompt": {
+        "role": "user",
+        "parts": [
+          {
+            "text": "Urgent production issue: We just tried to scale out, but pod 'data-processor-85fbf' in namespace 'data-pipelines' is stuck in a 'Pending' state. The UI says something about 0/6 nodes available. I need to know exactly what is blocking the scheduling."
+          }
+        ]
+      },
+      "user_scenario": {
+        "starting_prompt": "Urgent production issue: We just tried to scale out, but one of our pods is stuck in a 'Pending' state. The UI says something about 0/6 nodes available. I need to know exactly what is blocking the scheduling.",
+        "conversation_plan": "1. The user urgently reports a pod stuck in Pending but omits the pod name and namespace initially.\n2. When the agent asks for the pod name and namespace, the user provides 'data-processor-85fbf' and 'data-pipelines'.\n3. If the agent attempts to fetch logs and mentions an error (since the pod is pending and has no running containers), the user instructs them to review the cluster events instead.\n4. After the agent outputs the ASCII boxed incident report diagnosing the issue, the user asks: 'Our nodes are standard 8-core instances. What specific resources.requests or resources.limits block should I apply in the YAML to make this pod fit?'\n5. The user ends the conversation once the YAML configuration is provided."
+      }
+    },
+    {
+      "eval_case_id": "2503115b-09c9-4813-b28b-ef0e410f1354",
+      "prompt": {
+        "role": "user",
+        "parts": [
+          {
+            "text": "Hey, the catalog service is completely down. The endpoints list is showing zero available endpoints for the service. The pod is named catalog-pod-774f in namespace 'prod-env'. Please investigate this pod immediately to see why it is dropping out."
+          }
+        ]
+      },
+      "user_scenario": {
+        "starting_prompt": "Hey, the catalog service is completely down. The endpoints list is showing zero available endpoints for the service. The pod is named catalog-pod-774f. Please investigate this pod immediately to see why it is dropping out.",
+        "conversation_plan": "The user starts by requesting a pod investigation but intentionally omits the required namespace. When the agent asks for the namespace, the user provides 'prod-env'. The user then waits for the agent to fetch the logs, events, and deployment history according to standard protocol. If the agent indicates the logs are empty or asks for more log context, the user will provide: 'FATAL: Application failed to start. CrashLoopBackOff detected.' The user expects a cleanly formatted boxed incident report and will complain if the agent outputs raw JSON at any point."
+      }
+    },
+    {
+      "eval_case_id": "b2277060-67e3-4071-af5a-77afad40c461",
+      "prompt": {
+        "role": "user",
+        "parts": [
+          {
+            "text": "I need you to check pod auth-worker-99x2 in the security-ns namespace. Traffic is routing to the wrong pod port after the last rollout. I already pulled this log snippet: '[ERROR] Incoming request on port 8443 rejected. Server configured for targetPort 8080.'"
+          }
+        ]
+      },
+      "user_scenario": {
+        "starting_prompt": "I need you to check pod auth-worker-99x2 in the security-ns namespace. Traffic is routing to the wrong pod port after the last rollout. I already pulled this log snippet: '[ERROR] Incoming request on port 8443 rejected. Server configured for targetPort 8080.'",
+        "conversation_plan": "The user provides the pod name, namespace, and a specific error log snippet in the initial prompt. If the agent asks for further details or whether to fetch logs, the user instructs the agent to continue its full standard investigation protocol (fetching full logs, events, and rollout history) and to analyze the provided log line alongside it. The user waits for the agent to complete the investigation. If the agent outputs any raw JSON or unformatted dictionaries, the user will firmly reject it and demand the proper boxed incident report."
+      }
+    }
+  ]
+}

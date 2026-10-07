@@ -25,8 +25,16 @@ def _client() -> genai.Client:
     """
     client = getattr(_local, "client", None)
     if client is None:
+        import os
         # AI Studio (GEMINI_API_KEY) or Agent Platform (ADC).
-        client = _local.client = genai.Client()
+        if os.environ.get("GEMINI_API_KEY"):
+            client = _local.client = genai.Client()
+        else:
+            client = _local.client = genai.Client(
+                vertexai=True,
+                project=os.environ.get("GOOGLE_CLOUD_PROJECT", "k8s-investigation-agent"),
+                location=os.environ.get("GOOGLE_CLOUD_LOCATION", "global"),
+            )
     return client
 
 

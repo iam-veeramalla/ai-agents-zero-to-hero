@@ -624,3 +624,253 @@ def investigate_log_file(file_path: str, max_evidence_items: int = 10) -> dict[s
             "status": "ERROR",
             "message": f"Failed to read file {file_path}: {e!s}",
         }
+
+
+def _parse_k8s_node(node: Any) -> dict[str, Any]:
+    """Parses a Kubernetes V1Node object or JSON dictionary into a normalized dictionary representation."""
+    is_dict = isinstance(node, dict)
+
+    # Extract metadata
+    metadata = node.get("metadata", {}) if is_dict else getattr(node, "metadata", None)
+    name = (metadata.get("name") if is_dict else getattr(metadata, "name", "")) or ""
+    labels = (metadata.get("labels") or {}) if is_dict else (getattr(metadata, "labels", None) or {})
+    created = metadata.get("creationTimestamp") if is_dict else getattr(metadata, "creation_timestamp", None)
+    created_str = created.isoformat() if hasattr(created, "isoformat") else (str(created) if created else None)
+
+    # Extract node roles
+    roles = []
+    for k in labels.keys():
+        if k.startswith("node-role.kubernetes.io/"):
+            roles.append(k.split("/", 1)[1])
+        elif k == "kubernetes.io/role":
+            roles.append(labels[k])
+    if not roles:
+        roles = ["worker"]
+
+    # Extract spec & taints
+    spec = node.get("spec", {}) if is_dict else getattr(node, "spec", None)
+    taints_raw = (spec.get("taints", []) if is_dict else getattr(spec, "taints", None)) or []
+    taints = []
+    for t in taints_raw:
+        t_key = t.get("key") if isinstance(t, dict) else getattr(t, "key", "")
+        t_val = t.get("value") if isinstance(t, dict) else getattr(t, "value", None)
+        t_eff = t.get("effect") if isinstance(t, dict) else getattr(t, "effect", "")
+        taints.append({"key": t_key, "value": t_val, "effect": t_eff})
+
+    # Extract status & conditions
+    status = node.get("status", {}) if is_dict else getattr(node, "status", None)
+    conditions_raw = (status.get("conditions", []) if is_dict else getattr(status, "conditions", None)) or []
+
+    conditions = []
+    ready_status = "Unknown"
+    is_ready = False
+    pressure_detected = False
+    issues = []
+
+    for c in conditions_raw:
+        c_type = c.get("type") if isinstance(c, dict) else getattr(c, "type", "")
+        c_status = c.get("status") if isinstance(c, dict) else getattr(c, "status", "")
+        c_reason = c.get("reason") if isinstance(c, dict) else getattr(c, "reason", "")
+        c_msg = c.get("message") if isinstance(c, dict) else getattr(c, "message", "")
+        c_time = c.get("lastTransitionTime") if is_dict else getattr(c, "last_transition_time", None)
+        time_str = c_time.isoformat() if hasattr(c_time, "isoformat") else (str(c_time) if c_time else None)
+
+        conditions.append(
+            {
+                "type": c_type,
+                "status": c_status,
+                "reason": c_reason,
+                "message": c_msg,
+                "last_transition_time": time_str,
+            }
+        )
+
+        if c_type == "Ready":
+            ready_status = "Ready" if c_status == "True" else ("NotReady" if c_status == "False" else "Unknown")
+            is_ready = c_status == "True"
+            if not is_ready:
+                issues.append(
+                    f"Node '{name}' is {ready_status} (Reason: {c_reason or 'Unknown'}, Message: {c_msg or 'N/A'})"
+                )
+        elif c_type in ("MemoryPressure", "DiskPressure", "PIDPressure", "NetworkUnavailable"):
+            if c_status == "True":
+                pressure_detected = True
+                issues.append(
+                    f"Node '{name}' condition {c_type} is True (Reason: {c_reason or 'Unknown'}, Message: {c_msg or 'N/A'})"
+                )
+
+    for taint in taints:
+        t_key = taint.get("key") or ""
+        if "not-ready" in t_key or "unreachable" in t_key or "memory-pressure" in t_key or "disk-pressure" in t_key:
+            issues.append(
+                f"Node '{name}' has critical taint: {t_key}={taint.get('value')}:{taint.get('effect')}"
+            )
+
+    # Capacity & Allocatable
+    capacity = (status.get("capacity", {}) if is_dict else getattr(status, "capacity", None)) or {}
+    allocatable = (status.get("allocatable", {}) if is_dict else getattr(status, "allocatable", None)) or {}
+
+    # Node Info
+    node_info_raw = status.get("nodeInfo", {}) if is_dict else getattr(status, "node_info", None)
+    if is_dict:
+        node_info = {
+            "kubelet_version": node_info_raw.get("kubeletVersion", ""),
+            "os_image": node_info_raw.get("osImage", ""),
+            "container_runtime_version": node_info_raw.get("containerRuntimeVersion", ""),
+            "kernel_version": node_info_raw.get("kernelVersion", ""),
+            "architecture": node_info_raw.get("architecture", ""),
+            "operating_system": node_info_raw.get("operatingSystem", ""),
+        } if isinstance(node_info_raw, dict) else {}
+    else:
+        node_info = {
+            "kubelet_version": getattr(node_info_raw, "kubelet_version", "") if node_info_raw else "",
+            "os_image": getattr(node_info_raw, "os_image", "") if node_info_raw else "",
+            "container_runtime_version": getattr(node_info_raw, "container_runtime_version", "") if node_info_raw else "",
+            "kernel_version": getattr(node_info_raw, "kernel_version", "") if node_info_raw else "",
+            "architecture": getattr(node_info_raw, "architecture", "") if node_info_raw else "",
+            "operating_system": getattr(node_info_raw, "operating_system", "") if node_info_raw else "",
+        }
+
+    return {
+        "name": name,
+        "roles": roles,
+        "status": ready_status,
+        "ready": is_ready,
+        "pressure_detected": pressure_detected,
+        "issues": issues,
+        "conditions": conditions,
+        "capacity": dict(capacity),
+        "allocatable": dict(allocatable),
+        "taints": taints,
+        "node_info": node_info,
+        "creation_timestamp": created_str,
+    }
+
+
+def get_nodes_info(node_name: str = "") -> dict[str, Any]:
+    """Retrieves Kubernetes node status, conditions, resource capacity, allocatable limits, and taints.
+
+    Inspects cluster nodes to identify Node NotReady conditions, MemoryPressure,
+    DiskPressure, PIDPressure, resource exhaustion, and scheduling taints.
+
+    Args:
+        node_name: Name of a specific Kubernetes node to inspect. If empty, retrieves and analyzes all nodes in the cluster.
+
+    Returns:
+        A dictionary containing the status ('SUCCESS' or 'ERROR'), total_nodes,
+        ready_nodes, not_ready_nodes, pressure_nodes, cluster_healthy flag,
+        detected node issues, and detailed node information.
+    """
+    node_name = node_name.strip() if node_name else ""
+
+    # Strategy 1: Attempt retrieval via Kubernetes Python API client
+    api_client = _get_k8s_client()
+    if api_client is not None:
+        try:
+            from kubernetes.client.exceptions import ApiException
+
+            if node_name:
+                node_obj = api_client.read_node(name=node_name)
+                parsed_node = _parse_k8s_node(node_obj)
+                return {
+                    "status": "SUCCESS",
+                    "node_name": node_name,
+                    "is_ready": parsed_node["ready"],
+                    "has_pressure": parsed_node["pressure_detected"],
+                    "issues": parsed_node["issues"],
+                    "node": parsed_node,
+                    "nodes": [parsed_node],
+                }
+            else:
+                node_list = api_client.list_node()
+                parsed_nodes = [_parse_k8s_node(n) for n in node_list.items]
+                ready_count = sum(1 for n in parsed_nodes if n["ready"])
+                not_ready_count = sum(1 for n in parsed_nodes if not n["ready"])
+                pressure_count = sum(1 for n in parsed_nodes if n["pressure_detected"])
+                all_issues = []
+                for n in parsed_nodes:
+                    all_issues.extend(n["issues"])
+
+                return {
+                    "status": "SUCCESS",
+                    "total_nodes": len(parsed_nodes),
+                    "ready_nodes": ready_count,
+                    "not_ready_nodes": not_ready_count,
+                    "pressure_nodes": pressure_count,
+                    "cluster_healthy": (not_ready_count == 0 and pressure_count == 0),
+                    "issues_detected": all_issues,
+                    "nodes": parsed_nodes,
+                }
+        except ApiException as e:
+            return {
+                "status": "ERROR",
+                "message": f"Kubernetes API error (HTTP {e.status}): {e.reason or e.body or str(e)}",
+                "node_name": node_name,
+            }
+        except Exception:
+            # Fall back to kubectl
+            pass
+
+    # Strategy 2: Fallback to kubectl CLI
+    cmd = ["kubectl", "get", "nodes"] if not node_name else ["kubectl", "get", "node", node_name]
+    cmd.extend(["-o", "json"])
+
+    try:
+        proc = subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True,
+            timeout=30,
+            check=False,
+        )
+        if proc.returncode == 0:
+            data = json.loads(proc.stdout)
+            if node_name:
+                parsed_node = _parse_k8s_node(data)
+                return {
+                    "status": "SUCCESS",
+                    "node_name": node_name,
+                    "is_ready": parsed_node["ready"],
+                    "has_pressure": parsed_node["pressure_detected"],
+                    "issues": parsed_node["issues"],
+                    "node": parsed_node,
+                    "nodes": [parsed_node],
+                }
+            else:
+                items = data.get("items", [])
+                parsed_nodes = [_parse_k8s_node(item) for item in items]
+                ready_count = sum(1 for n in parsed_nodes if n["ready"])
+                not_ready_count = sum(1 for n in parsed_nodes if not n["ready"])
+                pressure_count = sum(1 for n in parsed_nodes if n["pressure_detected"])
+                all_issues = []
+                for n in parsed_nodes:
+                    all_issues.extend(n["issues"])
+
+                return {
+                    "status": "SUCCESS",
+                    "total_nodes": len(parsed_nodes),
+                    "ready_nodes": ready_count,
+                    "not_ready_nodes": not_ready_count,
+                    "pressure_nodes": pressure_count,
+                    "cluster_healthy": (not_ready_count == 0 and pressure_count == 0),
+                    "issues_detected": all_issues,
+                    "nodes": parsed_nodes,
+                }
+        return {
+            "status": "ERROR",
+            "message": f"kubectl error: {proc.stderr.strip() or proc.stdout.strip()}",
+            "node_name": node_name,
+        }
+    except FileNotFoundError:
+        return {
+            "status": "ERROR",
+            "message": "Neither Kubernetes Python client nor 'kubectl' command is available.",
+            "node_name": node_name,
+        }
+    except Exception as exc:
+        return {
+            "status": "ERROR",
+            "message": f"Failed to retrieve node info: {exc!s}",
+            "node_name": node_name,
+        }
+

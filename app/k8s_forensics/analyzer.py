@@ -229,16 +229,22 @@ class LogAnalyzer:
         # Prioritize root cause categories over symptoms:
         # e.g., OOM, Network, DB, Config, RBAC, ImagePull are primary causes; CrashLoop / Probe are symptoms.
         PRIMARY_PRIORITY = {
-            IssueCategory.OOM_KILLED: 1,
-            IssueCategory.CONFIG_SECRET: 2,
-            IssueCategory.RBAC_PERMISSION: 3,
-            IssueCategory.IMAGE_PULL: 4,
-            IssueCategory.STORAGE_VOLUME: 5,
-            IssueCategory.DATABASE_BACKEND: 6,
-            IssueCategory.NETWORK_DNS: 7,
-            IssueCategory.APP_EXCEPTION: 8,
-            IssueCategory.PROBE_FAILURE: 9,
-            IssueCategory.CRASH_LOOP: 10,
+            IssueCategory.NODE_NOT_READY: 1,
+            IssueCategory.NODE_MEMORY_PRESSURE: 2,
+            IssueCategory.RESOURCE_LIMITS: 3,
+            IssueCategory.OOM_KILLED: 4,
+            IssueCategory.CPU_THROTTLING: 5,
+            IssueCategory.SERVICE_NO_ENDPOINTS: 6,
+            IssueCategory.SERVICE_ROUTING: 7,
+            IssueCategory.CONFIG_SECRET: 8,
+            IssueCategory.RBAC_PERMISSION: 9,
+            IssueCategory.IMAGE_PULL: 10,
+            IssueCategory.STORAGE_VOLUME: 11,
+            IssueCategory.DATABASE_BACKEND: 12,
+            IssueCategory.NETWORK_DNS: 13,
+            IssueCategory.APP_EXCEPTION: 14,
+            IssueCategory.PROBE_FAILURE: 15,
+            IssueCategory.CRASH_LOOP: 16,
         }
 
         sorted_rules = sorted(
