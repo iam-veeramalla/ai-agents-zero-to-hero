@@ -1,0 +1,79 @@
+apiVersion: v1
+kind: Secret
+metadata:
+  name: payment-api-secret
+  namespace: default
+type: Opaque
+stringData:
+  DB_PASSWORD: "prod_db_secr3t_passw0rd_99!"
+  STRIPE_API_KEY: "sk_test_mock_stripe_key_for_testing"
+  DB_USER: "payment_svc"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: payment-api
+  namespace: default
+  labels:
+    app: payment-api
+spec:
+  selector:
+    app: payment-api
+  ports:
+    - name: http
+      port: 8080
+      targetPort: 8080
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: payment-api
+  namespace: default
+  labels:
+    app: payment-api
+    version: "v2.1.1-buggy"
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: payment-api
+  template:
+    metadata:
+      labels:
+        app: payment-api
+        version: "v2.1.1-buggy"
+    spec:
+      containers:
+        - name: payment-api
+          image: python:3.11-alpine
+          env:
+            - name: APP_ENV
+              value: "production"
+            - name: APP_VERSION
+              value: "v2.1.1-buggy"
+            - name: DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: payment-api-secret
+                  key: DB_PASSWORD
+          command:
+            - "/bin/sh"
+            - "-c"
+            - |
+              echo "[$(date -u +"%Y-%m-%dT%H:%M:%SZ")] [INFO] Starting payment-api service v2.1.1-buggy..."
+              echo "[$(date -u +"%Y-%m-%dT%H:%M:%SZ")] [INFO] Connected to payments-db.default.svc.cluster.local:3306"
+              echo "[$(date -u +"%Y-%m-%dT%H:%M:%SZ")] [WARN] Connection pool utilization at 98%"
+              while true; do
+                TIMESTAMP=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+                echo "[$TIMESTAMP] [ERROR] HTTP 500 /api/v1/charge - InternalServerError: Database connection pool exhausted (timeout after 30000ms)"
+                echo "[$TIMESTAMP] [ERROR] sqlalchemy.exc.TimeoutError: QueuePool limit of size 10 overflow 10 reached, connection timed out, timeout 30.00"
+                echo "[$TIMESTAMP] [ERROR] HTTP 500 /api/v1/checkout - PaymentProcessingError: Unable to acquire transaction lock"
+                sleep 5
+              done
+          resources:
+            requests:
+              cpu: "100m"
+              memory: "64Mi"
+            limits:
+              cpu: "200m"
+              memory: "128Mi"

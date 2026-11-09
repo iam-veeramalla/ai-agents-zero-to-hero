@@ -1,0 +1,25 @@
+# Unified Access Policy (UAP) targeting Agent SPIFFE ID
+# Gateway: projects/k8s-investigation-agent/locations/us-east1/agentGateways/k8s-investigator-gateway
+# Agent Reasoning Engine: 2253300647057162240
+
+name: projects/k8s-investigation-agent/locations/us-east1/unifiedAccessPolicies/k8s-agent-least-privilege-policy
+displayName: Kubernetes Investigator Least Privilege Access Policy
+description: Unified Access Policy enforced by IAP on k8s-investigator-gateway targeting agent SPIFFE ID
+
+bindings:
+  - role: roles/iap.egressor
+    members:
+      - spiffe://agents.global.org-310633432312.system.id.goog/resources/aiplatform/projects/1098749337818/locations/us-east1/reasoningEngines/2253300647057162240
+    condition:
+      title: allow_read_only_diagnostic_tools_for_spiffe_principal
+      description: Strictly permit read-only diagnostics for the verified SPIFFE ID; deny mutating actions and secrets access
+      expression: >-
+        connection.uri_san_peer_certificate == 'spiffe://agents.global.org-310633432312.system.id.goog/resources/aiplatform/projects/1098749337818/locations/us-east1/reasoningEngines/2253300647057162240' &&
+        api.getAttribute('iap.googleapis.com/mcp.toolName', '') in [
+          'list_pods',
+          'get_pod_logs',
+          'get_pod_events',
+          'get_deployment_history',
+          'get_nodes_info',
+          'investigate_kubernetes_logs'
+        ]

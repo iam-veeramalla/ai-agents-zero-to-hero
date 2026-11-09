@@ -1,0 +1,121 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: k8s-investigator
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: k8s-investigator-sa
+  namespace: k8s-investigator
+  annotations:
+    iam.gke.io/gcp-service-account: k8s-investigator-app@k8s-investigation-agent.iam.gserviceaccount.com
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: k8s-investigator-cluster-role
+rules:
+- apiGroups: [""]
+  resources: ["pods", "pods/log", "events", "nodes", "namespaces", "services", "configmaps"]
+  verbs: ["get", "list", "watch"]
+- apiGroups: ["apps"]
+  resources: ["deployments", "replicasets", "statefulsets", "daemonsets"]
+  verbs: ["get", "list", "watch"]
+- apiGroups: ["events.k8s.io"]
+  resources: ["events"]
+  verbs: ["get", "list", "watch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: k8s-investigator-cluster-rolebinding
+subjects:
+- kind: User
+  name: spiffe://agents.global.org-310633432312.system.id.goog/resources/aiplatform/projects/1098749337818/locations/us-east1/reasoningEngines/2253300647057162240
+  apiGroup: rbac.authorization.k8s.io
+roleRef:
+  kind: ClusterRole
+  name: k8s-investigator-cluster-role
+  apiGroup: rbac.authorization.k8s.io
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: k8s-investigator
+  namespace: k8s-investigator
+  labels:
+    app: k8s-investigator
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: k8s-investigator
+  template:
+    metadata:
+      labels:
+        app: k8s-investigator
+    spec:
+      serviceAccountName: k8s-investigator-sa
+      nodeSelector:
+        iam.gke.io/gke-metadata-server-enabled: "true"
+      containers:
+      - name: k8s-investigator
+        image: us-east1-docker.pkg.dev/k8s-investigation-agent/k8s-agent-repo/k8s-investigator:latest
+        imagePullPolicy: Always
+        ports:
+        - containerPort: 8080
+          name: http
+        env:
+        - name: GOOGLE_GENAI_USE_VERTEXAI
+          value: "true"
+        - name: GOOGLE_CLOUD_PROJECT
+          value: "k8s-investigation-agent"
+        - name: GOOGLE_CLOUD_LOCATION
+          value: "global"
+        - name: ALLOWED_CIDRS
+          value: "0.0.0.0/0,::/0"
+        - name: PORT
+          value: "8080"
+        - name: PYTHONUNBUFFERED
+          value: "1"
+        resources:
+          requests:
+            cpu: "250m"
+            memory: "512Mi"
+          limits:
+            cpu: "1000m"
+            memory: "1536Mi"
+        readinessProbe:
+          httpGet:
+            path: /health
+            port: 8080
+          initialDelaySeconds: 15
+          periodSeconds: 10
+          timeoutSeconds: 3
+          failureThreshold: 3
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 8080
+          initialDelaySeconds: 20
+          periodSeconds: 15
+          timeoutSeconds: 3
+          failureThreshold: 3
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: k8s-investigator-service
+  namespace: k8s-investigator
+  labels:
+    app: k8s-investigator
+spec:
+  type: LoadBalancer
+  selector:
+    app: k8s-investigator
+  ports:
+  - name: http
+    port: 80
+    targetPort: 8080
+    protocol: TCP

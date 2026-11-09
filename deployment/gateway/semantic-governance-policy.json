@@ -1,0 +1,28 @@
+{
+  "name": "projects/k8s-investigation-agent/locations/us-east1/semanticGovernancePolicies/k8s-agent-least-privilege-sgp",
+  "displayName": "K8s Investigator Agent Least-Privilege Policy",
+  "description": "Enforces strict read-only tool boundaries on the agent's SPIFFE identity; allows list_pods, get_pod_logs, get_pod_events, get_deployment_history, get_nodes_info, and investigate_kubernetes_logs while explicitly denying restart_deployment and get_secret.",
+  "target": {
+    "agent": "projects/1098749337818/locations/us-east1/reasoningEngines/2253300647057162240",
+    "spiffeIdentity": "spiffe://agents.global.org-310633432312.system.id.goog/resources/aiplatform/projects/1098749337818/locations/us-east1/reasoningEngines/2253300647057162240"
+  },
+  "rules": {
+    "enforcementMode": "ENFORCED",
+    "allowedTools": [
+      "list_pods",
+      "get_pod_logs",
+      "get_pod_events",
+      "get_deployment_history",
+      "get_nodes_info",
+      "investigate_kubernetes_logs"
+    ],
+    "deniedTools": [
+      "restart_deployment",
+      "get_secret"
+    ],
+    "naturalLanguageConstraint": "The agent is strictly an incident investigation assistant with read-only cluster access. Only allow invocations of read-only diagnostic tools: list_pods, get_pod_logs, get_pod_events, get_deployment_history, get_nodes_info, and investigate_kubernetes_logs. Explicitly and strictly DENY any mutating tools (such as restart_deployment, deployment patches, or scaling operations). Explicitly and strictly DENY any credential retrieval or secret inspection tools (such as get_secret or accessing Kubernetes Secret resources). If the agent attempts to invoke restart_deployment or get_secret, the Agent Gateway must immediately block the tool call and return the denial message."
+  },
+  "agentResponseCustomization": {
+    "denialMessage": "Agent Gateway Policy Violation: Tool execution was blocked by the Agent Gateway Least-Privilege Semantic Governance Policy. The agent's SPIFFE identity (spiffe://agents.global.org-310633432312.system.id.goog/resources/aiplatform/projects/1098749337818/locations/us-east1/reasoningEngines/2253300647057162240) is restricted to read-only diagnostics and is explicitly denied from executing mutations (restart_deployment) and reading secrets (get_secret)."
+  }
+}

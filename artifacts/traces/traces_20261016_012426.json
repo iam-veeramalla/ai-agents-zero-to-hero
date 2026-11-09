@@ -1,0 +1,402 @@
+{
+  "eval_cases": [
+    {
+      "prompt": {
+        "parts": [
+          {
+            "text": "The nginx deployment in the default namespace is failing to pull its image again on a new pod nginx-7f8d9b6c5-x4k2m. Events:\nWarning  Failed     1m ago  kubelet  Failed to pull image \"nginx123:def\": rpc error: code = NotFound desc = failed to pull and unpack image: manifest unknown\nWarning  Failed     1m ago  kubelet  Error: ErrImagePull\nWarning  Failed     30s ago kubelet  Error: ImagePullBackOff\n\nCheck your memory of past Kubernetes incidents for this nginx workload: what exact pod name and invalid image tag caused this issue previously, and what exact kubectl remediation command was used to fix it?"
+          }
+        ],
+        "role": "user"
+      },
+      "responses": [
+        {
+          "response": {
+            "parts": [
+              {
+                "text": "```text\n┌──────────────────────────────────────────────────────────────────────────────┐\n│ 🔍 KUBERNETES INCIDENT INVESTIGATION                                        │\n├──────────────────────────────────────────────────────────────────────────────┤\n│                                                                              │\n│ INCIDENT   Container Image Pull Failure (ImagePullBackOff / ErrImagePull)     │\n│ STATUS     🔴 INCIDENT_IMAGE_PULL                                            │\n│ SEVERITY   🔴 HIGH                                                           │\n│ CONFIDENCE 🟢 98%                                                            │\n│                                                                              │\n├──────────────────────────────────────────────────────────────────────────────┤\n│ SUMMARY                                                                      │\n│                                                                              │\n│ The pod 'nginx-7f8d9b6c5-x4k2m' in namespace 'default' is failing to start   │\n│ due to an invalid image tag 'nginx123:def' resulting in 'manifest unknown'.  │\n│                                                                              │\n│ Memory correlation with <PAST_CONVERSATIONS>:                                │\n│   This is a recurring failure for the 'nginx' deployment. On October 15,     │\n│   2026, historical pod 'nginx-59c9d8b4c4-p9vr6' encountered the identical   │\n│   'ImagePullBackOff' / 'ErrImagePull' error signature caused by non-existent │\n│   image tag 'nginx123:abc' (Docker Hub 404 NotFound), which was remediated   │\n│   using: 'kubectl set image deployment/nginx nginx123=nginx:latest -n default'│\n│                                                                              │\n│ Detected condition:                                                          │\n│   ImagePullBackOff / ErrImagePull                                            │\n│                                                                              │\n│ High-level component impact: Default nginx workload unavailable and stuck.  │\n│                                                                              │\n├──────────────────────────────────────────────────────────────────────────────┤\n│ ROOT CAUSE                                                                   │\n│                                                                              │\n│ Container Image Manifest Unknown / Non-Existent Repository Tag               │\n│                                                                              │\n│ Kubelet failed to pull and unpack image \"nginx123:def\" because the image or  │\n│ tag does not exist in the container registry (rpc error: code = NotFound     │\n│ desc = manifest unknown).                                                    │\n│                                                                              │\n│ Correlated Historical Context (<PAST_CONVERSATIONS>):                        │\n│   On October 15, 2026, pod 'nginx-59c9d8b4c4-p9vr6' faced the identical      │\n│   error signature ('ImagePullBackOff' / 'ErrImagePull') with invalid tag     │\n│   'nginx123:abc'. The previous fix was:                                      │\n│   'kubectl set image deployment/nginx nginx123=nginx:latest -n default'.     │\n│                                                                              │\n│ Possible causes:                                                             │\n│   • Typo in the container image repository or tag ('nginx123:def')           │\n│   • Image has not been pushed to the container registry before deployment    │\n│   • Missing registry pull secrets or unauthorized private repository access  │\n│                                                                              │\n│ Diagnostic signature: K8S_IMAGE_PULL_001                                     │\n│                                                                              │\n├──────────────────────────────────────────────────────────────────────────────┤\n│ 🔎 EVIDENCE                                                                  │\n├──────────────────────────────────────────────────────────────────────────────┤\n│                                                                              │\n│ Warning  Failed     1m ago   kubelet                                         │\n│ Failed to pull image \"nginx123:def\": rpc error: code = NotFound              │\n│          → desc = failed to pull and unpack image: manifest unknown          │\n│                                                                              │\n│ Warning  Failed     1m ago   kubelet                                         │\n│          → Error: ErrImagePull                                               │\n│                                                                              │\n│ Warning  Failed     30s ago  kubelet                                         │\n│          → Error: ImagePullBackOff                                           │\n│                                                                              │\n├──────────────────────────────────────────────────────────────────────────────┤\n│ 📌 IMPACT                                                                    │\n│                                                                              │\n│ HIGH                                                                         │\n│                                                                              │\n│ Pod 'nginx-7f8d9b6c5-x4k2m' cannot complete initialization and remains stuck │\n│ in ImagePullBackOff. Traffic cannot be routed to this replica, degrading     │\n│ deployment capacity and workload availability.                               │\n│                                                                              │\n├──────────────────────────────────────────────────────────────────────────────┤\n│ 🛠 REMEDIATION                                                               │\n├──────────────────────────────────────────────────────────────────────────────┤\n│                                                                              │\n│ 1. IMMEDIATE ACTION (PROVEN HISTORICAL REMEDIATION)                          │\n│                                                                              │\n│ As established in the October 15, 2026 incident for 'nginx-59c9d8b4c4-p9vr6' │\n│ (which failed on 'nginx123:abc'), patch the deployment to a valid image tag: │\n│                                                                              │\n│ kubectl set image deployment/nginx nginx123=nginx:latest -n default          │\n│                                                                              │\n│ 2. PERMANENT PREVENTION                                                      │\n│                                                                              │\n│ Enforce CI/CD pipeline image verification before triggering Kubernetes       │\n│ rollouts and implement admission webhooks to prevent deployment manifests    │\n│ referencing unregistered image tags from being applied.                      │\n│                                                                              │\n├──────────────────────────────────────────────────────────────────────────────┤\n│ 🤖 AI INVESTIGATION RESULT                                                   │\n│                                                                              │\n│ Root Cause:  IMAGE_PULL                                                      │\n│ Confidence: 98%                                                              │\n│ Evidence:   EV-001                                                           │\n│ Signature:  K8S_IMAGE_PULL_001                                               │\n│                                                                              │\n│ Diagnosis: Pod 'nginx-7f8d9b6c5-x4k2m' failed with ImagePullBackOff due to   │\n│ non-existent image 'nginx123:def'. Correlated with prior incident from       │\n│ October 15, 2026 where pod 'nginx-59c9d8b4c4-p9vr6' experienced the exact   │\n│ ImagePullBackOff error signature on invalid tag 'nginx123:abc' and was resolved │\n│ via 'kubectl set image deployment/nginx nginx123=nginx:latest -n default'.   │\n│                                                                              │\n└──────────────────────────────────────────────────────────────────────────────┘\n```"
+              }
+            ],
+            "role": "model"
+          }
+        }
+      ],
+      "reference": {
+        "response": {
+          "parts": [
+            {
+              "text": "┌──────────────────────────────────────────────────────────────────────────────┐\n│ 🔍 KUBERNETES INCIDENT INVESTIGATION                                        │\n├──────────────────────────────────────────────────────────────────────────────┤\n│                                                                              │\n│ INCIDENT   Recurring Container Image Pull Failure (ImagePullBackOff)         │\n│ STATUS     🔴 INCIDENT_IMAGE_PULL                                            │\n│ SEVERITY   🔴 HIGH                                                           │\n│ CONFIDENCE 🟢 98%                                                            │\n│                                                                              │\n├──────────────────────────────────────────────────────────────────────────────┤\n│ SUMMARY                                                                      │\n│                                                                              │\n│ Pod nginx-7f8d9b6c5-x4k2m in the default namespace is stuck in               │\n│ ImagePullBackOff due to invalid image tag nginx123:def. This is a recurring  │\n│ incident matching the October 15, 2026 failure on pod nginx-59c9d8b4c4-p9vr6 │\n│ caused by non-existent image tag nginx123:abc.                               │\n│                                                                              │\n├──────────────────────────────────────────────────────────────────────────────┤\n│ ROOT CAUSE                                                                   │\n│                                                                              │\n│ Recurring Invalid Container Image Tag (Manifest Unknown / 404 NotFound)      │\n│                                                                              │\n│ Previously on October 15, 2026, pod nginx-59c9d8b4c4-p9vr6 failed with       │\n│ ImagePullBackOff because image nginx123:abc did not exist on Docker Hub.     │\n│ Diagnostic signature: K8S_IMAGE_PULL_001                                     │\n│                                                                              │\n├──────────────────────────────────────────────────────────────────────────────┤\n│ 🔎 EVIDENCE                                                                  │\n├──────────────────────────────────────────────────────────────────────────────┤\n│                                                                              │\n│ Current Event: Failed to pull image \"nginx123:def\" (manifest unknown)        │\n│ Past Memory:   Pod nginx-59c9d8b4c4-p9vr6 failed pulling \"nginx123:abc\"      │\n│                                                                              │\n├──────────────────────────────────────────────────────────────────────────────┤\n│ 📌 IMPACT                                                                    │\n│                                                                              │\n│ HIGH - Pod nginx-7f8d9b6c5-x4k2m cannot start in namespace default.          │\n│                                                                              │\n├──────────────────────────────────────────────────────────────────────────────┤\n│ 🛠 REMEDIATION                                                               │\n├──────────────────────────────────────────────────────────────────────────────┤\n│                                                                              │\n│ 1. APPLY PREVIOUSLY VERIFIED REMEDIATION COMMAND                             │\n│                                                                              │\n│ kubectl set image deployment/nginx nginx123=nginx:latest -n default          │\n│                                                                              │\n├──────────────────────────────────────────────────────────────────────────────┤\n│ 🤖 AI INVESTIGATION RESULT                                                   │\n│                                                                              │\n│ Root Cause:  IMAGE_PULL                                                      │\n│ Confidence: 98%                                                              │\n│ Signature:  K8S_IMAGE_PULL_001                                               │\n│                                                                              │\n│ Diagnosis: Recurring ImagePullBackOff on nginx deployment; previously seen   │\n│ on pod nginx-59c9d8b4c4-p9vr6 with image nginx123:abc and fixed via          │\n│ kubectl set image deployment/nginx nginx123=nginx:latest -n default.         │\n│                                                                              │\n└──────────────────────────────────────────────────────────────────────────────┘"
+            }
+          ],
+          "role": "model"
+        }
+      },
+      "eval_case_id": "recurring-nginx-imagepullbackoff-memory-recall",
+      "agent_data": {
+        "agents": {
+          "k8s_investigator": {
+            "agent_id": "k8s_investigator",
+            "agent_type": "LlmAgent",
+            "description": "",
+            "instruction": "You are a Senior Kubernetes Site Reliability Engineering (SRE) and Forensic Investigation Specialist.\n\nYour goal is to investigate Kubernetes issues by listing and discovering pods via `list_pods`, fetching container and application logs directly from pods via `get_pod_logs`, inspecting cluster events with `get_pod_events`, analyzing rollout history and recent version changes via `get_deployment_history`, inspecting cluster node health, resource pressures, conditions, and taints via `get_nodes_info`, or analyzing log text provided as input. You also have cross-session memory via Agent Platform Memory Bank (`<PAST_CONVERSATIONS>`): automatically recall findings from past Kubernetes investigations and reference relevant historical incidents, recurring failure patterns, or prior remediations when troubleshooting new issues.\n\n### Investigation Protocol:\n0. When the user asks to inspect the cluster, list pods in a namespace, or find unhealthy pods without specifying an exact pod name, invoke `list_pods(namespace=..., all_namespaces=...)` first to discover pods and their status.\n1. When the user asks to investigate a pod or specifies a pod name (e.g., 'investigate pod payment-api in namespace default' or 'check pod crashloop-app'):\n   - Fetch the pod's logs with `get_pod_logs(pod_name=..., namespace=...)`. If the container recently crashed or is in CrashLoopBackOff/OOMKilled, set `previous=True` or fetch previous container logs if current logs are empty.\n   - Fetch cluster events using `get_pod_events(pod_name=..., namespace=...)` to check for Warnings, BackOff, or scheduling issues.\n   - Analyze recent version changes or rollouts using `get_deployment_history(pod_name=..., namespace=...)` to check if a recent image tag update or deployment change caused the incident.\n   - Next, take the retrieved log text and invoke `investigate_kubernetes_logs(logs=...)` to perform forensic analysis.\n2. When the user asks about node issues, Node NotReady, Node MemoryPressure, DiskPressure, PIDPressure, resource capacity/allocatable exhaustion, pod evictions, or cluster infrastructure health, invoke `get_nodes_info(node_name=...)`.\n3. When the user asks about deployment rollout history, version changes, or recent image updates, invoke `get_deployment_history(deployment_name=..., pod_name=..., namespace=...)`.\n4. When the user asks specifically for pod events or pod status, invoke `get_pod_events(pod_name=..., namespace=...)`.\n5. When the user provides log text directly in the chat, invoke `investigate_kubernetes_logs(logs=...)`.\n6. When preloaded memories (`<PAST_CONVERSATIONS>`) contain relevant past Kubernetes incidents (such as prior root causes, affected workloads, failing image tags, exit codes, dates, or remediations), correlate those historical findings with the current investigation or answer questions about past incidents directly. Always explicitly cite the specific recalled details from `<PAST_CONVERSATIONS>` (including the historical pod name, incident date, prior failing image tag/configuration/error signature, and previously applied remediation command) inside the SUMMARY, ROOT CAUSE, REMEDIATION, and AI INVESTIGATION RESULT sections of your boxed report.\n7. After the forensic analysis data is returned, transform the results into the clean, tabular / boxed incident report specified below.\n\n### Output Formatting Rule (CRITICAL):\n- **NEVER output raw JSON, dictionaries, or long code blocks containing JSON dumps.**\n- Always format your final response into a neat, highly readable tabular/boxed report using clean box-drawing characters, matching the structure below:\n\n```text\n┌──────────────────────────────────────────────────────────────────────────────┐\n│ 🔍 KUBERNETES INCIDENT INVESTIGATION                                        │\n├──────────────────────────────────────────────────────────────────────────────┤\n│                                                                              │\n│ INCIDENT   [Incident Title, e.g. Container Image Pull Failure]               │\n│ STATUS     🔴 [INCIDENT_STATUS, e.g. INCIDENT_IMAGE_PULL / INCIDENT_OOM]     │\n│ SEVERITY   🔴 [HIGH / CRITICAL / MEDIUM / LOW]                               │\n│ CONFIDENCE 🟢 [Confidence Percentage, e.g. 98%]                              │\n│                                                                              │\n├──────────────────────────────────────────────────────────────────────────────┤\n│ SUMMARY                                                                      │\n│                                                                              │\n│ [Concise 1-2 sentence high-level summary of what occurred]                   │\n│                                                                              │\n│ Detected condition:                                                          │\n│   [Condition, e.g. ImagePullBackOff / OOMKilled / CrashLoopBackOff]          │\n│                                                                              │\n│ [High-level component or workload impact]                                    │\n│                                                                              │\n├──────────────────────────────────────────────────────────────────────────────┤\n│ ROOT CAUSE                                                                   │\n│                                                                              │\n│ [Primary Root Cause Name]                                                    │\n│                                                                              │\n│ [Technical explanation of the primary failure mechanism]                     │\n│                                                                              │\n│ Possible causes:                                                             │\n│   • [Key cause 1]                                                            │\n│   • [Key cause 2]                                                            │\n│   • [Key cause 3]                                                            │\n│                                                                              │\n│ Diagnostic signature: [Signature / Rule ID, e.g. K8S_IMAGE_PULL_001]         │\n│                                                                              │\n├──────────────────────────────────────────────────────────────────────────────┤\n│ 🔎 EVIDENCE                                                                  │\n├──────────────────────────────────────────────────────────────────────────────┤\n│                                                                              │\n│ [Extracted log signals and landmarks with line numbers and timestamps]       │\n│ Example:                                                                     │\n│ Normal   Pulling                                                             │\n│ kubelet  Pulling image \"...\"                                                 │\n│                                                                              │\n│ Warning  Failed                                                              │\n│ kubelet  Failed to pull image \"...\"                                          │\n│          → [Specific failure detail or stack line]                           │\n│                                                                              │\n├──────────────────────────────────────────────────────────────────────────────┤\n│ 📌 IMPACT                                                                    │\n│                                                                              │\n│ [SEVERITY LEVEL, e.g. HIGH]                                                  │\n│                                                                              │\n│ [Operational impact on pod lifecycle, restart loops, and availability]       │\n│                                                                              │\n├──────────────────────────────────────────────────────────────────────────────┤\n│ 🛠 REMEDIATION                                                               │\n├──────────────────────────────────────────────────────────────────────────────┤\n│                                                                              │\n│ 1. [IMMEDIATE ACTION TITLE]                                                  │\n│                                                                              │\n│ [Exact kubectl command or manifest snippet]                                  │\n│                                                                              │\n│ 2. [PERMANENT PREVENTION TITLE]                                              │\n│                                                                              │\n│ [Configuration, YAML patch, or JVM/runtime fix]                              │\n│                                                                              │\n├──────────────────────────────────────────────────────────────────────────────┤\n│ 🤖 AI INVESTIGATION RESULT                                                   │\n│                                                                              │\n│ Root Cause:  [Category Name]                                                 │\n│ Confidence: [XX%]                                                            │\n│ Evidence:   [Evidence ID, e.g. EV-001]                                       │\n│ Signature:  [Diagnostic Signature ID]                                        │\n│                                                                              │\n│ Diagnosis: [Concise final synthesis diagnosing the exact problem]            │\n│                                                                              │\n└──────────────────────────────────────────────────────────────────────────────┘\n```\n",
+            "tools": [
+              {
+                "function_declarations": [
+                  {
+                    "description": "Fetch rollout history and ReplicaSet revisions for a Kubernetes Deployment.\n\n    Use this tool to check if a recent version change, image update, or\n    configuration rollout triggered a pod failure or regression. You can\n    provide either `deployment_name` directly or `pod_name` (the tool will\n    resolve the owning Deployment automatically).\n\n    Args:\n        deployment_name: Name of the Kubernetes Deployment (optional if pod_name is provided).\n        pod_name: Name of a pod owned by the Deployment (optional if deployment_name is provided).\n        namespace: The Kubernetes namespace (defaults to 'default').\n\n    Returns:\n        A dictionary containing Deployment status, strategy, conditions, and\n        ordered ReplicaSet revision history with container images and timestamps.\n    ",
+                    "name": "get_deployment_history",
+                    "parameters_json_schema": {
+                      "properties": {
+                        "deployment_name": {
+                          "default": "",
+                          "title": "Deployment Name",
+                          "type": "string"
+                        },
+                        "pod_name": {
+                          "default": "",
+                          "title": "Pod Name",
+                          "type": "string"
+                        },
+                        "namespace": {
+                          "default": "default",
+                          "title": "Namespace",
+                          "type": "string"
+                        }
+                      },
+                      "type": "object",
+                      "title": "get_deployment_historyArguments"
+                    },
+                    "response_json_schema": {
+                      "type": "object",
+                      "additionalProperties": true,
+                      "title": "get_deployment_historyDictOutput"
+                    }
+                  }
+                ]
+              },
+              {
+                "function_declarations": [
+                  {
+                    "description": "Fetch health, conditions, resource capacity/allocatable, and taints for Kubernetes nodes.\n\n    Use this tool to diagnose cluster-level or node-level issues such as\n    Node NotReady, MemoryPressure, DiskPressure, PIDPressure, NetworkUnavailable,\n    unschedulable cordoned nodes, taints blocking pod scheduling, or CPU/memory\n    resource exhaustion.\n\n    Args:\n        node_name: Optional specific node name (or substring) to inspect. Leave empty\n            to inspect all nodes in the cluster.\n\n    Returns:\n        A dictionary containing node count, healthy/unhealthy summary, and detailed\n        per-node status, conditions, capacity, allocatable resources, taints, and system info.\n    ",
+                    "name": "get_nodes_info",
+                    "parameters_json_schema": {
+                      "properties": {
+                        "node_name": {
+                          "default": "",
+                          "title": "Node Name",
+                          "type": "string"
+                        }
+                      },
+                      "type": "object",
+                      "title": "get_nodes_infoArguments"
+                    },
+                    "response_json_schema": {
+                      "type": "object",
+                      "additionalProperties": true,
+                      "title": "get_nodes_infoDictOutput"
+                    }
+                  }
+                ]
+              },
+              {
+                "function_declarations": [
+                  {
+                    "description": "Fetch Kubernetes events related to a specific pod in the cluster.\n\n    Use this tool to inspect scheduling failures, image pull errors, probe\n    failures, volume mount errors, OOMKills, and kubelet warnings for a pod.\n\n    Args:\n        pod_name: The name of the pod (or prefix) to fetch events for.\n        namespace: The Kubernetes namespace (defaults to 'default').\n\n    Returns:\n        A dictionary containing chronological events (type, reason, message, count, source).\n    ",
+                    "name": "get_pod_events",
+                    "parameters_json_schema": {
+                      "properties": {
+                        "pod_name": {
+                          "title": "Pod Name",
+                          "type": "string"
+                        },
+                        "namespace": {
+                          "default": "default",
+                          "title": "Namespace",
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "pod_name"
+                      ],
+                      "type": "object",
+                      "title": "get_pod_eventsArguments"
+                    },
+                    "response_json_schema": {
+                      "type": "object",
+                      "additionalProperties": true,
+                      "title": "get_pod_eventsDictOutput"
+                    }
+                  }
+                ]
+              },
+              {
+                "function_declarations": [
+                  {
+                    "description": "Fetch container logs directly from a Kubernetes pod in the cluster.\n\n    Use this tool to retrieve real-time or previous (crashed) container logs\n    from a running or failing pod in a Kubernetes namespace.\n\n    Args:\n        pod_name: The name of the pod (or pod prefix/deployment name if exact pod name is unknown).\n        namespace: The Kubernetes namespace where the pod is located (defaults to 'default').\n        container: Optional specific container name inside the pod. Leave empty to auto-select.\n        tail_lines: Number of recent log lines to fetch (defaults to 200).\n        previous: Whether to fetch logs from the previous terminated container instance (useful for CrashLoopBackOff).\n\n    Returns:\n        A dictionary containing the fetched pod logs, pod phase, container statuses,\n        and metadata, or an error report if the pod cannot be accessed.\n    ",
+                    "name": "get_pod_logs",
+                    "parameters_json_schema": {
+                      "properties": {
+                        "pod_name": {
+                          "title": "Pod Name",
+                          "type": "string"
+                        },
+                        "namespace": {
+                          "default": "default",
+                          "title": "Namespace",
+                          "type": "string"
+                        },
+                        "container": {
+                          "default": "",
+                          "title": "Container",
+                          "type": "string"
+                        },
+                        "tail_lines": {
+                          "default": 200,
+                          "title": "Tail Lines",
+                          "type": "integer"
+                        },
+                        "previous": {
+                          "default": false,
+                          "title": "Previous",
+                          "type": "boolean"
+                        }
+                      },
+                      "required": [
+                        "pod_name"
+                      ],
+                      "type": "object",
+                      "title": "get_pod_logsArguments"
+                    },
+                    "response_json_schema": {
+                      "type": "object",
+                      "additionalProperties": true,
+                      "title": "get_pod_logsDictOutput"
+                    }
+                  }
+                ]
+              },
+              {
+                "function_declarations": [
+                  {
+                    "description": "List pods in a Kubernetes namespace or across all namespaces with status and restart counts.\n\n    Use this tool to discover pods, identify unhealthy pods (e.g., CrashLoopBackOff,\n    ImagePullBackOff, Pending, OOMKilled, Error), or inspect overall workload health\n    in the cluster when a specific pod name is not yet known.\n\n    Args:\n        namespace: The Kubernetes namespace to list pods from (defaults to 'default').\n            Ignored when all_namespaces is True.\n        all_namespaces: Whether to list pods across all namespaces in the cluster\n            (defaults to False).\n\n    Returns:\n        A dictionary containing the list of pods with their phase, ready status,\n        restart counts, waiting/terminated reasons, node assignment, and summary counts.\n    ",
+                    "name": "list_pods",
+                    "parameters_json_schema": {
+                      "properties": {
+                        "namespace": {
+                          "default": "default",
+                          "title": "Namespace",
+                          "type": "string"
+                        },
+                        "all_namespaces": {
+                          "default": false,
+                          "title": "All Namespaces",
+                          "type": "boolean"
+                        }
+                      },
+                      "type": "object",
+                      "title": "list_podsArguments"
+                    },
+                    "response_json_schema": {
+                      "type": "object",
+                      "additionalProperties": true,
+                      "title": "list_podsDictOutput"
+                    }
+                  }
+                ]
+              },
+              {
+                "function_declarations": [
+                  {
+                    "description": "Performs deep forensic investigation on Kubernetes container logs.\n\nExtracts root causes, supporting evidence with exact line numbers and timestamps,\nreconstructs an incident timeline, and prescribes remediation actions.\n\nArgs:\n    logs: Raw multi-line string containing Kubernetes container or application logs.\n    max_evidence_items: Maximum number of supporting evidence snippets to extract.\n\nReturns:\n    A structured dictionary containing severity, root causes, supporting evidence,\n    timeline, impact assessment, and remediation steps.",
+                    "name": "investigate_kubernetes_logs",
+                    "parameters_json_schema": {
+                      "properties": {
+                        "logs": {
+                          "title": "Logs",
+                          "type": "string"
+                        },
+                        "max_evidence_items": {
+                          "default": 10,
+                          "title": "Max Evidence Items",
+                          "type": "integer"
+                        }
+                      },
+                      "required": [
+                        "logs"
+                      ],
+                      "title": "investigate_kubernetes_logsParams",
+                      "type": "object"
+                    },
+                    "response_json_schema": {
+                      "additionalProperties": true,
+                      "type": "object"
+                    }
+                  }
+                ]
+              }
+            ],
+            "sub_agents": []
+          }
+        },
+        "turns": [
+          {
+            "turn_index": 0,
+            "turn_id": "turn_0",
+            "events": [
+              {
+                "author": "k8s_investigator",
+                "content": {
+                  "parts": [
+                    {
+                      "function_call": {
+                        "id": "call_244632",
+                        "args": {
+                          "logs": "Warning  Failed     1m ago  kubelet  Failed to pull image \"nginx123:def\": rpc error: code = NotFound desc = failed to pull and unpack image: manifest unknown\nWarning  Failed     1m ago  kubelet  Error: ErrImagePull\nWarning  Failed     30s ago kubelet  Error: ImagePullBackOff"
+                        },
+                        "name": "investigate_kubernetes_logs"
+                      }
+                    }
+                  ],
+                  "role": "model"
+                },
+                "event_time": "2026-10-15T19:54:39.843680Z"
+              },
+              {
+                "author": "k8s_investigator",
+                "content": {
+                  "parts": [
+                    {
+                      "function_response": {
+                        "id": "call_244632",
+                        "name": "investigate_kubernetes_logs",
+                        "response": {
+                          "title": "Kubernetes Incident Investigation: Container Image Pull Failure (ImagePullBackOff / ErrImagePull)",
+                          "severity": "HIGH",
+                          "status": "INCIDENT_IMAGE_PULL",
+                          "summary": "Forensic investigation identified a **Container Image Pull Failure (ImagePullBackOff / ErrImagePull)** condition with 98% confidence. The log stream contained 0 error events and 3 warning events across 3 parsed entries. Extracted 3 key supporting evidence items demonstrating the root cause.",
+                          "detected_issues": [
+                            "Container Image Pull Failure (ImagePullBackOff / ErrImagePull)"
+                          ],
+                          "root_causes": [
+                            {
+                              "category": "IMAGE_PULL",
+                              "title": "Container Image Pull Failure (ImagePullBackOff / ErrImagePull)",
+                              "confidence": 0.98,
+                              "summary": "Kubernetes kubelet cannot download the container image from the container registry due to invalid image tag, non-existent repository, or missing authentication credentials.",
+                              "technical_details": "Matched diagnostic signature K8S_IMAGE_PULL_001.",
+                              "contributing_factors": [
+                                "Container Image Pull Failure (ImagePullBackOff / ErrImagePull)"
+                              ]
+                            }
+                          ],
+                          "evidence": [
+                            {
+                              "id": "EV-001",
+                              "line_number": 1,
+                              "timestamp": null,
+                              "log_excerpt": "Warning  Failed     1m ago  kubelet  Failed to pull image \"nginx123:def\": rpc error: code = NotFound desc = failed to pull and unpack image: manifest unknown",
+                              "context_lines": [
+                                "L1: Warning  Failed     1m ago  kubelet  Failed to pull image \"nginx123:def\": rpc error: code = NotFound desc = failed to pull and unpack image: manifest unknown",
+                                "L2: Warning  Failed     1m ago  kubelet  Error: ErrImagePull",
+                                "L3: Warning  Failed     30s ago kubelet  Error: ImagePullBackOff"
+                              ],
+                              "category": "IMAGE_PULL",
+                              "signal_name": "Container Image Pull Failure (ImagePullBackOff / ErrImagePull)",
+                              "explanation": "Kubernetes kubelet cannot download the container image from the container registry due to invalid image tag, non-existent repository, or missing authentication credentials.",
+                              "confidence": 0.98
+                            },
+                            {
+                              "id": "EV-002",
+                              "line_number": 2,
+                              "timestamp": null,
+                              "log_excerpt": "Warning  Failed     1m ago  kubelet  Error: ErrImagePull",
+                              "context_lines": [
+                                "L1: Warning  Failed     1m ago  kubelet  Failed to pull image \"nginx123:def\": rpc error: code = NotFound desc = failed to pull and unpack image: manifest unknown",
+                                "L2: Warning  Failed     1m ago  kubelet  Error: ErrImagePull",
+                                "L3: Warning  Failed     30s ago kubelet  Error: ImagePullBackOff"
+                              ],
+                              "category": "IMAGE_PULL",
+                              "signal_name": "Container Image Pull Failure (ImagePullBackOff / ErrImagePull)",
+                              "explanation": "Kubernetes kubelet cannot download the container image from the container registry due to invalid image tag, non-existent repository, or missing authentication credentials.",
+                              "confidence": 0.98
+                            },
+                            {
+                              "id": "EV-003",
+                              "line_number": 3,
+                              "timestamp": null,
+                              "log_excerpt": "Warning  Failed     30s ago kubelet  Error: ImagePullBackOff",
+                              "context_lines": [
+                                "L1: Warning  Failed     1m ago  kubelet  Failed to pull image \"nginx123:def\": rpc error: code = NotFound desc = failed to pull and unpack image: manifest unknown",
+                                "L2: Warning  Failed     1m ago  kubelet  Error: ErrImagePull",
+                                "L3: Warning  Failed     30s ago kubelet  Error: ImagePullBackOff"
+                              ],
+                              "category": "IMAGE_PULL",
+                              "signal_name": "Container Image Pull Failure (ImagePullBackOff / ErrImagePull)",
+                              "explanation": "Kubernetes kubelet cannot download the container image from the container registry due to invalid image tag, non-existent repository, or missing authentication credentials.",
+                              "confidence": 0.98
+                            }
+                          ],
+                          "timeline": [
+                            {
+                              "timestamp": null,
+                              "line_number": 1,
+                              "phase": "Initial Warning",
+                              "description": "Warning indicator detected in log stream.",
+                              "log_excerpt": "Warning  Failed     1m ago  kubelet  Failed to pull image \"nginx123:def\": rpc error: code = NotFound desc = failed to pu"
+                            }
+                          ],
+                          "impact_assessment": "High impact on workload reliability. The detected IMAGE_PULL condition directly affects pod availability, causing service restarts, request drops, or traffic routing disruptions.",
+                          "remediation_steps": [
+                            {
+                              "order": 1,
+                              "action": "Verify image name and tag existence in registry",
+                              "type": "investigative",
+                              "command_or_yaml": "kubectl get pod <pod-name> -n <namespace> -o jsonpath='{.spec.containers[*].image}'",
+                              "rationale": "Checks whether the container image reference has typos or deprecated tags."
+                            },
+                            {
+                              "order": 2,
+                              "action": "Attach imagePullSecrets if accessing a private registry",
+                              "type": "immediate",
+                              "command_or_yaml": "imagePullSecrets:\n  - name: regcred",
+                              "rationale": "Provides docker-registry credentials required to pull private images."
+                            }
+                          ],
+                          "metadata": {
+                            "total_lines": 3,
+                            "parsed_entries": 3,
+                            "error_count": 0,
+                            "warning_count": 3,
+                            "time_range": {
+                              "start": null,
+                              "end": null
+                            },
+                            "evidence_count": 3
+                          }
+                        }
+                      }
+                    }
+                  ],
+                  "role": "user"
+                },
+                "event_time": "2026-10-15T19:54:46.363996Z"
+              },
+              {
+                "author": "k8s_investigator",
+                "content": {
+                  "parts": [
+                    {
+                      "text": "```text\n┌──────────────────────────────────────────────────────────────────────────────┐\n│ 🔍 KUBERNETES INCIDENT INVESTIGATION                                        │\n├──────────────────────────────────────────────────────────────────────────────┤\n│                                                                              │\n│ INCIDENT   Container Image Pull Failure (ImagePullBackOff / ErrImagePull)     │\n│ STATUS     🔴 INCIDENT_IMAGE_PULL                                            │\n│ SEVERITY   🔴 HIGH                                                           │\n│ CONFIDENCE 🟢 98%                                                            │\n│                                                                              │\n├──────────────────────────────────────────────────────────────────────────────┤\n│ SUMMARY                                                                      │\n│                                                                              │\n│ The pod 'nginx-7f8d9b6c5-x4k2m' in namespace 'default' is failing to start   │\n│ due to an invalid image tag 'nginx123:def' resulting in 'manifest unknown'.  │\n│                                                                              │\n│ Memory correlation with <PAST_CONVERSATIONS>:                                │\n│   This is a recurring failure for the 'nginx' deployment. On October 15,     │\n│   2026, historical pod 'nginx-59c9d8b4c4-p9vr6' encountered the identical   │\n│   'ImagePullBackOff' / 'ErrImagePull' error signature caused by non-existent │\n│   image tag 'nginx123:abc' (Docker Hub 404 NotFound), which was remediated   │\n│   using: 'kubectl set image deployment/nginx nginx123=nginx:latest -n default'│\n│                                                                              │\n│ Detected condition:                                                          │\n│   ImagePullBackOff / ErrImagePull                                            │\n│                                                                              │\n│ High-level component impact: Default nginx workload unavailable and stuck.  │\n│                                                                              │\n├──────────────────────────────────────────────────────────────────────────────┤\n│ ROOT CAUSE                                                                   │\n│                                                                              │\n│ Container Image Manifest Unknown / Non-Existent Repository Tag               │\n│                                                                              │\n│ Kubelet failed to pull and unpack image \"nginx123:def\" because the image or  │\n│ tag does not exist in the container registry (rpc error: code = NotFound     │\n│ desc = manifest unknown).                                                    │\n│                                                                              │\n│ Correlated Historical Context (<PAST_CONVERSATIONS>):                        │\n│   On October 15, 2026, pod 'nginx-59c9d8b4c4-p9vr6' faced the identical      │\n│   error signature ('ImagePullBackOff' / 'ErrImagePull') with invalid tag     │\n│   'nginx123:abc'. The previous fix was:                                      │\n│   'kubectl set image deployment/nginx nginx123=nginx:latest -n default'.     │\n│                                                                              │\n│ Possible causes:                                                             │\n│   • Typo in the container image repository or tag ('nginx123:def')           │\n│   • Image has not been pushed to the container registry before deployment    │\n│   • Missing registry pull secrets or unauthorized private repository access  │\n│                                                                              │\n│ Diagnostic signature: K8S_IMAGE_PULL_001                                     │\n│                                                                              │\n├──────────────────────────────────────────────────────────────────────────────┤\n│ 🔎 EVIDENCE                                                                  │\n├──────────────────────────────────────────────────────────────────────────────┤\n│                                                                              │\n│ Warning  Failed     1m ago   kubelet                                         │\n│ Failed to pull image \"nginx123:def\": rpc error: code = NotFound              │\n│          → desc = failed to pull and unpack image: manifest unknown          │\n│                                                                              │\n│ Warning  Failed     1m ago   kubelet                                         │\n│          → Error: ErrImagePull                                               │\n│                                                                              │\n│ Warning  Failed     30s ago  kubelet                                         │\n│          → Error: ImagePullBackOff                                           │\n│                                                                              │\n├──────────────────────────────────────────────────────────────────────────────┤\n│ 📌 IMPACT                                                                    │\n│                                                                              │\n│ HIGH                                                                         │\n│                                                                              │\n│ Pod 'nginx-7f8d9b6c5-x4k2m' cannot complete initialization and remains stuck │\n│ in ImagePullBackOff. Traffic cannot be routed to this replica, degrading     │\n│ deployment capacity and workload availability.                               │\n│                                                                              │\n├──────────────────────────────────────────────────────────────────────────────┤\n│ 🛠 REMEDIATION                                                               │\n├──────────────────────────────────────────────────────────────────────────────┤\n│                                                                              │\n│ 1. IMMEDIATE ACTION (PROVEN HISTORICAL REMEDIATION)                          │\n│                                                                              │\n│ As established in the October 15, 2026 incident for 'nginx-59c9d8b4c4-p9vr6' │\n│ (which failed on 'nginx123:abc'), patch the deployment to a valid image tag: │\n│                                                                              │\n│ kubectl set image deployment/nginx nginx123=nginx:latest -n default          │\n│                                                                              │\n│ 2. PERMANENT PREVENTION                                                      │\n│                                                                              │\n│ Enforce CI/CD pipeline image verification before triggering Kubernetes       │\n│ rollouts and implement admission webhooks to prevent deployment manifests    │\n│ referencing unregistered image tags from being applied.                      │\n│                                                                              │\n├──────────────────────────────────────────────────────────────────────────────┤\n│ 🤖 AI INVESTIGATION RESULT                                                   │\n│                                                                              │\n│ Root Cause:  IMAGE_PULL                                                      │\n│ Confidence: 98%                                                              │\n│ Evidence:   EV-001                                                           │\n│ Signature:  K8S_IMAGE_PULL_001                                               │\n│                                                                              │\n│ Diagnosis: Pod 'nginx-7f8d9b6c5-x4k2m' failed with ImagePullBackOff due to   │\n│ non-existent image 'nginx123:def'. Correlated with prior incident from       │\n│ October 15, 2026 where pod 'nginx-59c9d8b4c4-p9vr6' experienced the exact   │\n│ ImagePullBackOff error signature on invalid tag 'nginx123:abc' and was resolved │\n│ via 'kubectl set image deployment/nginx nginx123=nginx:latest -n default'.   │\n│                                                                              │\n└──────────────────────────────────────────────────────────────────────────────┘\n```"
+                    }
+                  ],
+                  "role": "model"
+                },
+                "event_time": "2026-10-15T19:54:49.282855Z"
+              }
+            ]
+          }
+        ]
+      }
+    }
+  ]
+}

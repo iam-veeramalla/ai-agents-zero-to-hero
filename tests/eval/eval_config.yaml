@@ -1,5 +1,6 @@
 metrics_to_run:
   - custom_response_quality
+  - memory_recall_accuracy
   - agent_turn_count
 
 custom_metrics:
@@ -7,8 +8,24 @@ custom_metrics:
   # google-genai on Agent Platform (ADC) or Google AI Studio (GEMINI_API_KEY).
   - name: custom_response_quality
     custom_function_file: response_quality.py
+  - name: memory_recall_accuracy
+    custom_function: |
+      def evaluate(instance):
+          response = str(instance.get("response") or "").lower()
+          required_facts = [
+              "nginx-59c9d8b4c4-p9vr6",
+              "nginx123:abc",
+              "kubectl set image deployment/nginx nginx123=nginx:latest",
+          ]
+          matched = [fact for fact in required_facts if fact.lower() in response]
+          score = round(len(matched) / len(required_facts), 2)
+          return {
+              "score": score,
+              "explanation": f"Recalled {len(matched)}/{len(required_facts)} historical Memory Bank facts: {matched}",
+          }
   - name: agent_turn_count
     custom_function: |
       def evaluate(instance):
           turns = (instance.get("agent_data") or {}).get("turns", [])
           return {'score': len(turns)}
+

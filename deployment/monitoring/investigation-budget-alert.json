@@ -1,0 +1,55 @@
+{
+  "displayName": "K8s Investigation - Budget Exceeded (Duration or Tokens)",
+  "combiner": "OR",
+  "conditions": [
+    {
+      "displayName": "Investigation Duration Budget Exceeded (> 120s)",
+      "conditionThreshold": {
+        "filter": "resource.type = \"prometheus_target\" AND metric.type = \"prometheus.googleapis.com/gen_ai.invoke_agent.duration/histogram\"",
+        "comparison": "COMPARISON_GT",
+        "thresholdValue": 120,
+        "duration": "0s",
+        "trigger": {
+          "count": 1
+        },
+        "aggregations": [
+          {
+            "alignmentPeriod": "60s",
+            "perSeriesAligner": "ALIGN_DELTA"
+          },
+          {
+            "alignmentPeriod": "60s",
+            "perSeriesAligner": "ALIGN_PERCENTILE_99"
+          }
+        ]
+      }
+    },
+    {
+      "displayName": "Investigation Token Budget Exceeded (> 50k tokens)",
+      "conditionThreshold": {
+        "filter": "resource.type = \"prometheus_target\" AND metric.type = \"prometheus.googleapis.com/gen_ai.client.token.usage/histogram\"",
+        "comparison": "COMPARISON_GT",
+        "thresholdValue": 50000,
+        "duration": "0s",
+        "trigger": {
+          "count": 1
+        },
+        "aggregations": [
+          {
+            "alignmentPeriod": "60s",
+            "perSeriesAligner": "ALIGN_DELTA"
+          },
+          {
+            "alignmentPeriod": "60s",
+            "perSeriesAligner": "ALIGN_PERCENTILE_99"
+          }
+        ]
+      }
+    }
+  ],
+  "documentation": {
+    "content": "A Kubernetes investigation run exceeded the configured budget threshold (Duration > 120s or Tokens > 50,000). Inspect traces in Google Cloud Trace to review tool call loops or LLM prompt lengths.",
+    "mimeType": "text/markdown"
+  },
+  "enabled": true
+}

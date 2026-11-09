@@ -1,0 +1,33 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: k8s-investigator
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: k8s-investigator-sa
+  namespace: k8s-investigator
+  annotations:
+    iam.gke.io/gcp-service-account: k8s-investigator-app@k8s-investigation-agent.iam.gserviceaccount.com
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: workload-identity-test
+  namespace: k8s-investigator
+spec:
+  serviceAccountName: k8s-investigator-sa
+  nodeSelector:
+    iam.gke.io/gke-metadata-server-enabled: "true"
+  containers:
+  - name: test-workload-identity
+    image: google/cloud-sdk:slim
+    command: ["sleep", "infinity"]
+    resources:
+      limits:
+        memory: "256Mi"
+        cpu: "200m"
+      requests:
+        memory: "128Mi"
+        cpu: "100m"

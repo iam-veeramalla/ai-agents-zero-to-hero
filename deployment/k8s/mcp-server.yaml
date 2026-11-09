@@ -1,0 +1,136 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: k8s-investigator
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: k8s-mcp-server-sa
+  namespace: k8s-investigator
+  annotations:
+    iam.gke.io/gcp-service-account: k8s-investigator-app@k8s-investigation-agent.iam.gserviceaccount.com
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: k8s-mcp-impersonator-role
+rules:
+- apiGroups: [""]
+  resources: ["users", "groups", "serviceaccounts"]
+  verbs: ["impersonate"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: k8s-mcp-impersonator-rolebinding
+subjects:
+- kind: ServiceAccount
+  name: k8s-mcp-server-sa
+  namespace: k8s-investigator
+roleRef:
+  kind: ClusterRole
+  name: k8s-mcp-impersonator-role
+  apiGroup: rbac.authorization.k8s.io
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: k8s-investigator-cluster-role
+rules:
+- apiGroups: [""]
+  resources: ["pods", "pods/log", "events", "nodes", "namespaces", "services", "configmaps"]
+  verbs: ["get", "list", "watch"]
+- apiGroups: ["apps"]
+  resources: ["deployments", "replicasets", "statefulsets", "daemonsets"]
+  verbs: ["get", "list", "watch"]
+- apiGroups: ["events.k8s.io"]
+  resources: ["events"]
+  verbs: ["get", "list", "watch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: k8s-investigator-cluster-rolebinding
+subjects:
+- kind: User
+  name: spiffe://agents.global.org-310633432312.system.id.goog/resources/aiplatform/projects/1098749337818/locations/us-east1/reasoningEngines/2253300647057162240
+  apiGroup: rbac.authorization.k8s.io
+roleRef:
+  kind: ClusterRole
+  name: k8s-investigator-cluster-role
+  apiGroup: rbac.authorization.k8s.io
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: k8s-mcp-server
+  namespace: k8s-investigator
+  labels:
+    app: k8s-mcp-server
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: k8s-mcp-server
+  template:
+    metadata:
+      labels:
+        app: k8s-mcp-server
+    spec:
+      serviceAccountName: k8s-mcp-server-sa
+      nodeSelector:
+        iam.gke.io/gke-metadata-server-enabled: "true"
+      containers:
+      - name: k8s-mcp-server
+        image: us-east1-docker.pkg.dev/k8s-investigation-agent/k8s-agent-repo/k8s-investigator:latest
+        imagePullPolicy: Always
+        command: ["uv", "run", "uvicorn", "app.mcp_server:app", "--host", "0.0.0.0", "--port", "8080"]
+        ports:
+        - containerPort: 8080
+          name: http
+        env:
+        - name: PORT
+          value: "8080"
+        - name: PYTHONUNBUFFERED
+          value: "1"
+        resources:
+          requests:
+            cpu: "250m"
+            memory: "256Mi"
+          limits:
+            cpu: "1000m"
+            memory: "1024Mi"
+        readinessProbe:
+          httpGet:
+            path: /health
+            port: 8080
+          initialDelaySeconds: 5
+          periodSeconds: 10
+          timeoutSeconds: 3
+          failureThreshold: 3
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 8080
+          initialDelaySeconds: 10
+          periodSeconds: 15
+          timeoutSeconds: 3
+          failureThreshold: 3
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: k8s-mcp-server-service
+  namespace: k8s-investigator
+  labels:
+    app: k8s-mcp-server
+spec:
+  type: LoadBalancer
+  selector:
+    app: k8s-mcp-server
+  ports:
+  - name: http
+    port: 80
+    targetPort: 8080
+    protocol: TCP

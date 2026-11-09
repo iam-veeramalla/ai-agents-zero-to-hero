@@ -1,0 +1,35 @@
+name: projects/k8s-investigation-agent/locations/us-east1/authzPolicies/k8s-agent-least-privilege-policy
+action: ALLOW
+description: Least-privilege policy for k8s investigator agent with essential platform egress
+target:
+  resources:
+  - projects/1098749337818/locations/us-east1/agentGateways/k8s-investigator-gateway
+httpRules:
+# Rule 1: Allow all essential Google Cloud platform APIs unconditionally (sessions, trace, gemini, resource manager)
+- to:
+    operations:
+    - hosts:
+      - suffix: googleapis.com
+# Rule 2: Strictly restrict MCP server egress to verified Agent SPIFFE ID and the 6 read-only diagnostic tools
+- from:
+    sources:
+    - principals:
+      - principal:
+          exact: spiffe://agents.global.org-310633432312.system.id.goog/resources/aiplatform/projects/1098749337818/locations/us-east1/reasoningEngines/2253300647057162240
+        principalSelector: CLIENT_CERT_URI_SAN
+  to:
+    operations:
+    - hosts:
+      - exact: 34.138.10.186
+      mcp:
+        baseProtocolMethodsOption: MATCH_BASE_PROTOCOL_METHODS
+        methods:
+        - name: tools/list
+        - name: tools/call
+          params:
+          - exact: list_pods
+          - exact: get_pod_logs
+          - exact: get_pod_events
+          - exact: get_deployment_history
+          - exact: get_nodes_info
+          - exact: investigate_kubernetes_logs

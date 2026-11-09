@@ -1,8 +1,10 @@
 """ADK Tools for Kubernetes Log Investigation and Pod Log Retrieval."""
 
+import base64
 import json
 import os
 import subprocess
+from datetime import UTC, datetime
 from typing import Any
 
 from app.k8s_forensics import LogAnalyzer
@@ -10,7 +12,26 @@ from app.k8s_forensics import LogAnalyzer
 analyzer = LogAnalyzer()
 
 
-def _get_k8s_client():
+def _format_k8s_api_error(e: Any) -> str:
+    """Formats a Kubernetes ApiException into a descriptive error string including body message."""
+    reason = getattr(e, "reason", None) or ""
+    body = getattr(e, "body", None)
+    detail = ""
+    if body:
+        try:
+            body_text = body.decode("utf-8") if isinstance(body, bytes) else str(body)
+            body_json = json.loads(body_text)
+            detail = body_json.get("message") or ""
+        except Exception:
+            detail = str(body).strip()
+    if reason and detail and detail != reason:
+        msg = f"{reason} - {detail}"
+    else:
+        msg = detail or reason or str(e)
+    return f"Kubernetes API error (HTTP {getattr(e, 'status', 'Unknown')}): {msg}"
+
+
+def _get_k8s_client(impersonate_user: str | None = None):
     """Initializes and returns the Kubernetes CoreV1Api client, or None if unavailable."""
     try:
         from kubernetes import client, config
@@ -19,12 +40,15 @@ def _get_k8s_client():
             config.load_incluster_config()
         except Exception:
             config.load_kube_config()
-        return client.CoreV1Api()
+        api_client = client.ApiClient()
+        if impersonate_user:
+            api_client.set_default_header("Impersonate-User", impersonate_user)
+        return client.CoreV1Api(api_client=api_client)
     except Exception:
         return None
 
 
-def _get_k8s_apps_client():
+def _get_k8s_apps_client(impersonate_user: str | None = None):
     """Initializes and returns the Kubernetes AppsV1Api client, or None if unavailable."""
     try:
         from kubernetes import client, config
@@ -33,9 +57,200 @@ def _get_k8s_apps_client():
             config.load_incluster_config()
         except Exception:
             config.load_kube_config()
-        return client.AppsV1Api()
+        api_client = client.ApiClient()
+        if impersonate_user:
+            api_client.set_default_header("Impersonate-User", impersonate_user)
+        return client.AppsV1Api(api_client=api_client)
     except Exception:
         return None
+
+
+def list_pods(
+    namespace: str = "default",
+    all_namespaces: bool = False,
+    impersonate_user: str | None = None,
+) -> dict[str, Any]:
+    """Lists Kubernetes pods in a namespace or across all namespaces with their status, readiness, restarts, and container states.
+
+    Args:
+        namespace: Kubernetes namespace to list pods from (defaults to 'default'). Pass 'all' or set all_namespaces=True to inspect all namespaces.
+        all_namespaces: If True, lists pods across all namespaces in the cluster.
+        impersonate_user: Optional Kubernetes user/SPIFFE identity to impersonate via Impersonate-User.
+
+    Returns:
+        A dictionary containing the status ('SUCCESS' or 'ERROR'), namespace scope,
+        total_pods, unhealthy_pods count, and a list of pod summaries.
+    """
+    namespace = namespace.strip() if namespace else "default"
+    if namespace.lower() in ("all", "*"):
+        all_namespaces = True
+
+    api_client = (
+        _get_k8s_client(impersonate_user=impersonate_user)
+        if impersonate_user
+        else _get_k8s_client()
+    )
+    if api_client is not None:
+        try:
+            from kubernetes.client.exceptions import ApiException
+
+            if all_namespaces:
+                pod_list = api_client.list_pod_for_all_namespaces()
+            else:
+                pod_list = api_client.list_namespaced_pod(namespace=namespace)
+
+            pods_summary = []
+            unhealthy_count = 0
+            for pod in pod_list.items:
+                p_name = pod.metadata.name if pod.metadata else ""
+                p_ns = pod.metadata.namespace if pod.metadata else namespace
+                phase = pod.status.phase if pod.status else "Unknown"
+                node_name = pod.spec.node_name if pod.spec else None
+
+                c_statuses = (pod.status.container_statuses if pod.status else None) or []
+                total_c = len(c_statuses) or len((pod.spec.containers if pod.spec else None) or [])
+                ready_c = sum(1 for cs in c_statuses if cs.ready)
+                restarts = sum((cs.restart_count or 0) for cs in c_statuses)
+
+                reasons = []
+                for cs in c_statuses:
+                    if cs.state:
+                        if cs.state.waiting and cs.state.waiting.reason:
+                            reasons.append(cs.state.waiting.reason)
+                        elif cs.state.terminated and cs.state.terminated.reason:
+                            reasons.append(cs.state.terminated.reason)
+                    if cs.last_state and cs.last_state.terminated and cs.last_state.terminated.reason:
+                        term_reason = cs.last_state.terminated.reason
+                        if term_reason not in reasons:
+                            reasons.append(f"LastTerminated:{term_reason}")
+
+                reason_str = ", ".join(reasons) if reasons else phase
+                is_healthy = (
+                    (phase == "Running" and ready_c == total_c and total_c > 0 and not reasons)
+                    or phase == "Succeeded"
+                )
+                if not is_healthy:
+                    unhealthy_count += 1
+
+                pods_summary.append(
+                    {
+                        "name": p_name,
+                        "namespace": p_ns,
+                        "phase": phase,
+                        "ready": f"{ready_c}/{total_c}",
+                        "restarts": restarts,
+                        "reason": reason_str,
+                        "healthy": is_healthy,
+                        "node_name": node_name,
+                    }
+                )
+
+            return {
+                "status": "SUCCESS",
+                "namespace": "all" if all_namespaces else namespace,
+                "total_pods": len(pods_summary),
+                "unhealthy_pods": unhealthy_count,
+                "pods": pods_summary,
+            }
+        except ApiException as e:
+            return {
+                "status": "ERROR",
+                "message": _format_k8s_api_error(e),
+                "namespace": "all" if all_namespaces else namespace,
+            }
+        except Exception:
+            pass
+
+    cmd = ["kubectl", "get", "pods"]
+    if impersonate_user:
+        cmd.append(f"--as={impersonate_user}")
+    if all_namespaces:
+        cmd.append("-A")
+    else:
+        cmd.extend(["-n", namespace])
+    cmd.extend(["-o", "json"])
+
+    try:
+        proc = subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True,
+            timeout=30,
+            check=False,
+        )
+        if proc.returncode == 0:
+            data = json.loads(proc.stdout)
+            items = data.get("items", [])
+            pods_summary = []
+            unhealthy_count = 0
+            for item in items:
+                meta = item.get("metadata", {})
+                spec = item.get("spec", {})
+                status = item.get("status", {})
+                phase = status.get("phase", "Unknown")
+                c_statuses = status.get("containerStatuses", []) or []
+                total_c = len(c_statuses) or len(spec.get("containers", []) or [])
+                ready_c = sum(1 for cs in c_statuses if cs.get("ready"))
+                restarts = sum(cs.get("restartCount", 0) for cs in c_statuses)
+
+                reasons = []
+                for cs in c_statuses:
+                    state = cs.get("state", {})
+                    if "waiting" in state and state["waiting"].get("reason"):
+                        reasons.append(state["waiting"]["reason"])
+                    elif "terminated" in state and state["terminated"].get("reason"):
+                        reasons.append(state["terminated"]["reason"])
+                    last_state = cs.get("lastState", {})
+                    if "terminated" in last_state and last_state["terminated"].get("reason"):
+                        tr = last_state["terminated"]["reason"]
+                        if tr not in reasons:
+                            reasons.append(f"LastTerminated:{tr}")
+
+                reason_str = ", ".join(reasons) if reasons else phase
+                is_healthy = (
+                    (phase == "Running" and ready_c == total_c and total_c > 0 and not reasons)
+                    or phase == "Succeeded"
+                )
+                if not is_healthy:
+                    unhealthy_count += 1
+
+                pods_summary.append(
+                    {
+                        "name": meta.get("name", ""),
+                        "namespace": meta.get("namespace", namespace),
+                        "phase": phase,
+                        "ready": f"{ready_c}/{total_c}",
+                        "restarts": restarts,
+                        "reason": reason_str,
+                        "healthy": is_healthy,
+                        "node_name": spec.get("nodeName"),
+                    }
+                )
+
+            return {
+                "status": "SUCCESS",
+                "namespace": "all" if all_namespaces else namespace,
+                "total_pods": len(pods_summary),
+                "unhealthy_pods": unhealthy_count,
+                "pods": pods_summary,
+            }
+        return {
+            "status": "ERROR",
+            "message": f"kubectl error: {proc.stderr.strip() or proc.stdout.strip()}",
+            "namespace": "all" if all_namespaces else namespace,
+        }
+    except FileNotFoundError:
+        return {
+            "status": "ERROR",
+            "message": "Neither Kubernetes Python client nor 'kubectl' command is available.",
+            "namespace": "all" if all_namespaces else namespace,
+        }
+    except Exception as exc:
+        return {
+            "status": "ERROR",
+            "message": f"Failed to list pods: {exc!s}",
+            "namespace": "all" if all_namespaces else namespace,
+        }
 
 
 def get_pod_logs(
@@ -45,6 +260,7 @@ def get_pod_logs(
     tail_lines: int = 500,
     previous: bool = False,
     timestamps: bool = True,
+    impersonate_user: str | None = None,
 ) -> dict[str, Any]:
     """Fetches log output from a specific Kubernetes pod container.
 
@@ -55,6 +271,7 @@ def get_pod_logs(
         tail_lines: Number of most recent log lines to retrieve.
         previous: If True, retrieve logs for the previous terminated container instance (useful for crash investigation).
         timestamps: If True, include RFC3339 timestamps at the beginning of each log line.
+        impersonate_user: Optional Kubernetes user identity (e.g. SPIFFE ID) to impersonate.
 
     Returns:
         A dictionary containing the status ('SUCCESS' or 'ERROR'), pod_name,
@@ -73,7 +290,7 @@ def get_pod_logs(
     container = container.strip() if container else ""
 
     # Strategy 1: Attempt retrieval via Kubernetes Python API client
-    api_client = _get_k8s_client()
+    api_client = _get_k8s_client(impersonate_user=impersonate_user)
     if api_client is not None:
         try:
             from kubernetes.client.exceptions import ApiException
@@ -103,7 +320,7 @@ def get_pod_logs(
             # If the API returned an explicit k8s error (e.g. 404 Pod not found, 400 bad container)
             return {
                 "status": "ERROR",
-                "message": f"Kubernetes API error (HTTP {e.status}): {e.reason or e.body or str(e)}",
+                "message": _format_k8s_api_error(e),
                 "pod_name": pod_name,
                 "namespace": namespace,
             }
@@ -121,6 +338,8 @@ def get_pod_logs(
         cmd.append("--previous")
     if timestamps:
         cmd.append("--timestamps")
+    if impersonate_user:
+        cmd.append(f"--as={impersonate_user}")
 
     try:
         proc = subprocess.run(
@@ -164,12 +383,14 @@ def get_pod_logs(
 def get_pod_events(
     pod_name: str,
     namespace: str = "default",
+    impersonate_user: str | None = None,
 ) -> dict[str, Any]:
     """Fetches Kubernetes cluster events associated with a specific pod.
 
     Args:
         pod_name: Name of the target Kubernetes pod.
         namespace: Kubernetes namespace where the pod is located.
+        impersonate_user: Optional Kubernetes user identity (e.g. SPIFFE ID) to impersonate.
 
     Returns:
         A dictionary containing the status ('SUCCESS' or 'ERROR'), pod_name,
@@ -188,7 +409,7 @@ def get_pod_events(
     namespace = namespace.strip() if namespace else "default"
 
     # Strategy 1: Attempt retrieval via Kubernetes Python API client
-    api_client = _get_k8s_client()
+    api_client = _get_k8s_client(impersonate_user=impersonate_user)
     if api_client is not None:
         try:
             from kubernetes.client.exceptions import ApiException
@@ -226,7 +447,7 @@ def get_pod_events(
         except ApiException as e:
             return {
                 "status": "ERROR",
-                "message": f"Kubernetes API error (HTTP {e.status}): {e.reason or e.body or str(e)}",
+                "message": _format_k8s_api_error(e),
                 "pod_name": pod_name,
                 "namespace": namespace,
             }
@@ -246,6 +467,8 @@ def get_pod_events(
         "-o",
         "json",
     ]
+    if impersonate_user:
+        cmd.append(f"--as={impersonate_user}")
     try:
         proc = subprocess.run(
             cmd,
@@ -300,10 +523,98 @@ def get_pod_events(
         }
 
 
+def _resolve_deployment_name(
+    pod_name: str,
+    namespace: str = "default",
+    impersonate_user: str | None = None,
+) -> str:
+    """Helper to resolve parent deployment name from a pod name."""
+    if not pod_name:
+        return ""
+
+    core_client = _get_k8s_client(impersonate_user=impersonate_user)
+    if core_client is not None:
+        try:
+            pod = core_client.read_namespaced_pod(name=pod_name, namespace=namespace)
+            for ref in pod.metadata.owner_references or []:
+                if ref.kind == "ReplicaSet":
+                    rs_name = ref.name
+                    apps_client = _get_k8s_apps_client(impersonate_user=impersonate_user)
+                    if apps_client is not None:
+                        try:
+                            rs = apps_client.read_namespaced_replica_set(
+                                name=rs_name, namespace=namespace
+                            )
+                            for rs_ref in rs.metadata.owner_references or []:
+                                if rs_ref.kind == "Deployment":
+                                    return rs_ref.name
+                        except Exception:
+                            pass
+                    if "-" in rs_name:
+                        return rs_name.rsplit("-", 1)[0]
+                    return rs_name
+        except Exception:
+            pass
+
+    try:
+        pod_cmd = [
+            "kubectl",
+            "get",
+            "pod",
+            pod_name,
+            "-n",
+            namespace,
+            "-o",
+            "jsonpath={.metadata.ownerReferences[0].name}",
+        ]
+        if impersonate_user:
+            pod_cmd.append(f"--as={impersonate_user}")
+        res_pod = subprocess.run(
+            pod_cmd,
+            capture_output=True,
+            text=True,
+            timeout=10,
+            check=False,
+        )
+        if res_pod.returncode == 0 and res_pod.stdout.strip():
+            owner = res_pod.stdout.strip()
+            rs_cmd = [
+                "kubectl",
+                "get",
+                "rs",
+                owner,
+                "-n",
+                namespace,
+                "-o",
+                "jsonpath={.metadata.ownerReferences[0].name}",
+            ]
+            if impersonate_user:
+                rs_cmd.append(f"--as={impersonate_user}")
+            res_rs = subprocess.run(
+                rs_cmd,
+                capture_output=True,
+                text=True,
+                timeout=10,
+                check=False,
+            )
+            if res_rs.returncode == 0 and res_rs.stdout.strip():
+                return res_rs.stdout.strip()
+            elif "-" in owner:
+                return owner.rsplit("-", 1)[0]
+            return owner
+    except Exception:
+        pass
+
+    if pod_name.count("-") >= 2:
+        return pod_name.rsplit("-", 2)[0]
+    return pod_name
+
+
 def get_deployment_history(
     deployment_name: str = "",
     namespace: str = "default",
     pod_name: str = "",
+    impersonate_user: str | None = None,
 ) -> dict[str, Any]:
     """Retrieves deployment rollout history and analyzes container image/version changes across revisions.
 
@@ -311,6 +622,7 @@ def get_deployment_history(
         deployment_name: Name of the Kubernetes Deployment to inspect (optional if pod_name is provided).
         namespace: Kubernetes namespace where the deployment or pod is located.
         pod_name: Name of a specific pod to automatically resolve its parent deployment and inspect history (optional if deployment_name is provided).
+        impersonate_user: Optional Kubernetes user identity (e.g. SPIFFE ID) to impersonate.
 
     Returns:
         A dictionary containing the status ('SUCCESS' or 'ERROR'), deployment_name,
@@ -330,74 +642,11 @@ def get_deployment_history(
 
     # Step 1: If pod_name is provided but deployment_name is not, resolve the parent Deployment
     if pod_name and not deployment_name:
-        core_client = _get_k8s_client()
-        if core_client is not None:
-            try:
-                pod = core_client.read_namespaced_pod(name=pod_name, namespace=namespace)
-                for ref in pod.metadata.owner_references or []:
-                    if ref.kind == "ReplicaSet":
-                        rs_name = ref.name
-                        apps_client = _get_k8s_apps_client()
-                        if apps_client is not None:
-                            try:
-                                rs = apps_client.read_namespaced_replica_set(
-                                    name=rs_name, namespace=namespace
-                                )
-                                for rs_ref in rs.metadata.owner_references or []:
-                                    if rs_ref.kind == "Deployment":
-                                        deployment_name = rs_ref.name
-                                        break
-                            except Exception:
-                                pass
-                        if not deployment_name and "-" in rs_name:
-                            deployment_name = rs_name.rsplit("-", 1)[0]
-                        break
-            except Exception:
-                pass
-
-        # Fallback resolution via kubectl if deployment_name still unresolved
-        if not deployment_name:
-            try:
-                res_pod = subprocess.run(
-                    [
-                        "kubectl",
-                        "get",
-                        "pod",
-                        pod_name,
-                        "-n",
-                        namespace,
-                        "-o",
-                        "jsonpath={.metadata.ownerReferences[0].name}",
-                    ],
-                    capture_output=True,
-                    text=True,
-                    timeout=10,
-                    check=False,
-                )
-                if res_pod.returncode == 0 and res_pod.stdout.strip():
-                    owner = res_pod.stdout.strip()
-                    res_rs = subprocess.run(
-                        [
-                            "kubectl",
-                            "get",
-                            "rs",
-                            owner,
-                            "-n",
-                            namespace,
-                            "-o",
-                            "jsonpath={.metadata.ownerReferences[0].name}",
-                        ],
-                        capture_output=True,
-                        text=True,
-                        timeout=10,
-                        check=False,
-                    )
-                    if res_rs.returncode == 0 and res_rs.stdout.strip():
-                        deployment_name = res_rs.stdout.strip()
-                    elif "-" in owner:
-                        deployment_name = owner.rsplit("-", 1)[0]
-            except Exception:
-                pass
+        deployment_name = _resolve_deployment_name(
+            pod_name=pod_name,
+            namespace=namespace,
+            impersonate_user=impersonate_user,
+        )
 
         if not deployment_name:
             if pod_name.count("-") >= 2:
@@ -409,7 +658,7 @@ def get_deployment_history(
     revisions_data: list[dict[str, Any]] = []
 
     # Attempt via Kubernetes Python API client
-    apps_client = _get_k8s_apps_client()
+    apps_client = _get_k8s_apps_client(impersonate_user=impersonate_user)
     if apps_client is not None:
         try:
             from kubernetes.client.exceptions import ApiException
@@ -453,7 +702,7 @@ def get_deployment_history(
         except ApiException as e:
             return {
                 "status": "ERROR",
-                "message": f"Kubernetes API error (HTTP {e.status}): {e.reason or e.body or str(e)}",
+                "message": _format_k8s_api_error(e),
                 "deployment_name": deployment_name,
                 "namespace": namespace,
             }
@@ -464,6 +713,8 @@ def get_deployment_history(
     if not revisions_data:
         try:
             cmd = ["kubectl", "get", "rs", "-n", namespace, "-o", "json"]
+            if impersonate_user:
+                cmd.append(f"--as={impersonate_user}")
             proc = subprocess.run(
                 cmd,
                 capture_output=True,
@@ -573,6 +824,300 @@ def get_deployment_history(
         "analysis": analysis,
         "revisions": revisions_data,
     }
+
+
+def restart_deployment(
+    deployment_name: str = "",
+    namespace: str = "default",
+    pod_name: str = "",
+    impersonate_user: str | None = None,
+) -> dict[str, Any]:
+    """Triggers a rolling restart of a Kubernetes Deployment (equivalent to `kubectl rollout restart`).
+
+    Args:
+        deployment_name: Name of the Deployment to restart (optional if pod_name is provided).
+        namespace: Kubernetes namespace where the deployment is located (defaults to 'default').
+        pod_name: Name of a specific pod to automatically resolve its parent deployment and restart it (optional if deployment_name is provided).
+        impersonate_user: Optional Kubernetes user identity (e.g. SPIFFE ID) to impersonate.
+
+    Returns:
+        A dictionary containing the status ('SUCCESS' or 'ERROR'), deployment_name,
+        namespace, restarted_at timestamp, and execution message.
+    """
+    deployment_name = deployment_name.strip() if deployment_name else ""
+    namespace = namespace.strip() if namespace else "default"
+    pod_name = pod_name.strip() if pod_name else ""
+
+    if not deployment_name and not pod_name:
+        return {
+            "status": "ERROR",
+            "message": "Either deployment_name or pod_name must be provided to restart a deployment.",
+            "namespace": namespace,
+        }
+
+    if pod_name and not deployment_name:
+        deployment_name = _resolve_deployment_name(
+            pod_name=pod_name,
+            namespace=namespace,
+            impersonate_user=impersonate_user,
+        )
+
+    if not deployment_name:
+        return {
+            "status": "ERROR",
+            "message": f"Could not determine parent deployment for pod '{pod_name}'.",
+            "namespace": namespace,
+        }
+
+    now_iso = datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+    # Strategy 1: Attempt via Kubernetes Python API client (patch template annotations)
+    apps_client = _get_k8s_apps_client(impersonate_user=impersonate_user)
+    if apps_client is not None:
+        try:
+            from kubernetes.client.exceptions import ApiException
+
+            patch_body = {
+                "spec": {
+                    "template": {
+                        "metadata": {
+                            "annotations": {
+                                "kubectl.kubernetes.io/restartedAt": now_iso
+                            }
+                        }
+                    }
+                }
+            }
+            apps_client.patch_namespaced_deployment(
+                name=deployment_name,
+                namespace=namespace,
+                body=patch_body,
+            )
+            return {
+                "status": "SUCCESS",
+                "deployment_name": deployment_name,
+                "namespace": namespace,
+                "restarted_at": now_iso,
+                "message": f"Deployment '{deployment_name}' rolling restart triggered successfully at {now_iso}.",
+            }
+        except ApiException as e:
+            return {
+                "status": "ERROR",
+                "message": _format_k8s_api_error(e),
+                "deployment_name": deployment_name,
+                "namespace": namespace,
+            }
+        except Exception:
+            pass
+
+    # Strategy 2: Fallback to kubectl rollout restart
+    cmd = ["kubectl", "rollout", "restart", f"deployment/{deployment_name}", "-n", namespace]
+    if impersonate_user:
+        cmd.append(f"--as={impersonate_user}")
+
+    try:
+        proc = subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True,
+            timeout=30,
+            check=False,
+        )
+        if proc.returncode == 0:
+            return {
+                "status": "SUCCESS",
+                "deployment_name": deployment_name,
+                "namespace": namespace,
+                "restarted_at": now_iso,
+                "message": proc.stdout.strip() or f"Deployment '{deployment_name}' restarted successfully.",
+            }
+        return {
+            "status": "ERROR",
+            "message": f"kubectl error: {proc.stderr.strip() or proc.stdout.strip()}",
+            "deployment_name": deployment_name,
+            "namespace": namespace,
+        }
+    except FileNotFoundError:
+        return {
+            "status": "ERROR",
+            "message": "Neither Kubernetes Python client nor 'kubectl' command is available.",
+            "deployment_name": deployment_name,
+            "namespace": namespace,
+        }
+    except Exception as exc:
+        return {
+            "status": "ERROR",
+            "message": f"Failed to restart deployment: {exc!s}",
+            "deployment_name": deployment_name,
+            "namespace": namespace,
+        }
+
+
+def get_secret(
+    secret_name: str,
+    namespace: str = "default",
+    key: str = "",
+    decode: bool = True,
+    impersonate_user: str | None = None,
+) -> dict[str, Any]:
+    """Retrieves metadata, keys, and values for a Kubernetes Secret in a namespace.
+
+    Args:
+        secret_name: Name of the Kubernetes Secret to retrieve.
+        namespace: Kubernetes namespace where the secret is located (defaults to 'default').
+        key: Specific key inside the secret data to retrieve. If empty, all keys and values are returned.
+        decode: If True, base64-decodes values into UTF-8 strings. If False, returns raw base64 data.
+        impersonate_user: Optional Kubernetes user identity (e.g. SPIFFE ID) to impersonate.
+
+    Returns:
+        A dictionary containing the status ('SUCCESS' or 'ERROR'), secret_name,
+        namespace, type, keys list, and secret data mapping or specific key value.
+    """
+    secret_name = secret_name.strip() if secret_name else ""
+    namespace = namespace.strip() if namespace else "default"
+    key = key.strip() if key else ""
+
+    if not secret_name:
+        return {
+            "status": "ERROR",
+            "message": "secret_name must be provided and non-empty.",
+            "namespace": namespace,
+        }
+
+    # Strategy 1: Attempt retrieval via Kubernetes Python API client
+    core_client = _get_k8s_client(impersonate_user=impersonate_user)
+    if core_client is not None:
+        try:
+            from kubernetes.client.exceptions import ApiException
+
+            secret_obj = core_client.read_namespaced_secret(name=secret_name, namespace=namespace)
+            sec_type = secret_obj.type or "Opaque"
+            raw_data = secret_obj.data or {}
+            keys = list(raw_data.keys())
+
+            if key and key not in raw_data:
+                return {
+                    "status": "ERROR",
+                    "message": f"Key '{key}' not found in secret '{secret_name}'. Available keys: {keys}",
+                    "secret_name": secret_name,
+                    "namespace": namespace,
+                    "keys": keys,
+                }
+
+            processed_data: dict[str, Any] = {}
+            for k, val in raw_data.items():
+                if key and k != key:
+                    continue
+                if decode and val is not None:
+                    try:
+                        decoded_bytes = base64.b64decode(val)
+                        try:
+                            processed_data[k] = decoded_bytes.decode("utf-8")
+                        except UnicodeDecodeError:
+                            processed_data[k] = f"<binary: {len(decoded_bytes)} bytes>"
+                    except Exception:
+                        processed_data[k] = str(val)
+                else:
+                    processed_data[k] = str(val) if val is not None else ""
+
+            result: dict[str, Any] = {
+                "status": "SUCCESS",
+                "secret_name": secret_name,
+                "namespace": namespace,
+                "type": sec_type,
+                "keys": keys,
+                "data": processed_data,
+            }
+            if key:
+                result["key"] = key
+                result["value"] = processed_data.get(key, "")
+            return result
+        except ApiException as e:
+            return {
+                "status": "ERROR",
+                "message": _format_k8s_api_error(e),
+                "secret_name": secret_name,
+                "namespace": namespace,
+            }
+        except Exception:
+            pass
+
+    # Strategy 2: Fallback to kubectl get secret -o json
+    cmd = ["kubectl", "get", "secret", secret_name, "-n", namespace, "-o", "json"]
+    if impersonate_user:
+        cmd.append(f"--as={impersonate_user}")
+
+    try:
+        proc = subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True,
+            timeout=30,
+            check=False,
+        )
+        if proc.returncode == 0:
+            secret_json = json.loads(proc.stdout)
+            sec_type = secret_json.get("type", "Opaque")
+            raw_data = secret_json.get("data", {}) or {}
+            keys = list(raw_data.keys())
+
+            if key and key not in raw_data:
+                return {
+                    "status": "ERROR",
+                    "message": f"Key '{key}' not found in secret '{secret_name}'. Available keys: {keys}",
+                    "secret_name": secret_name,
+                    "namespace": namespace,
+                    "keys": keys,
+                }
+
+            processed_data = {}
+            for k, val in raw_data.items():
+                if key and k != key:
+                    continue
+                if decode and val is not None:
+                    try:
+                        decoded_bytes = base64.b64decode(val)
+                        try:
+                            processed_data[k] = decoded_bytes.decode("utf-8")
+                        except UnicodeDecodeError:
+                            processed_data[k] = f"<binary: {len(decoded_bytes)} bytes>"
+                    except Exception:
+                        processed_data[k] = str(val)
+                else:
+                    processed_data[k] = str(val) if val is not None else ""
+
+            result = {
+                "status": "SUCCESS",
+                "secret_name": secret_name,
+                "namespace": namespace,
+                "type": sec_type,
+                "keys": keys,
+                "data": processed_data,
+            }
+            if key:
+                result["key"] = key
+                result["value"] = processed_data.get(key, "")
+            return result
+        return {
+            "status": "ERROR",
+            "message": f"kubectl error: {proc.stderr.strip() or proc.stdout.strip()}",
+            "secret_name": secret_name,
+            "namespace": namespace,
+        }
+    except FileNotFoundError:
+        return {
+            "status": "ERROR",
+            "message": "Neither Kubernetes Python client nor 'kubectl' command is available.",
+            "secret_name": secret_name,
+            "namespace": namespace,
+        }
+    except Exception as exc:
+        return {
+            "status": "ERROR",
+            "message": f"Failed to get secret: {exc!s}",
+            "secret_name": secret_name,
+            "namespace": namespace,
+        }
 
 
 def investigate_kubernetes_logs(logs: str, max_evidence_items: int = 10) -> dict[str, Any]:
@@ -747,7 +1292,10 @@ def _parse_k8s_node(node: Any) -> dict[str, Any]:
     }
 
 
-def get_nodes_info(node_name: str = "") -> dict[str, Any]:
+def get_nodes_info(
+    node_name: str = "",
+    impersonate_user: str | None = None,
+) -> dict[str, Any]:
     """Retrieves Kubernetes node status, conditions, resource capacity, allocatable limits, and taints.
 
     Inspects cluster nodes to identify Node NotReady conditions, MemoryPressure,
@@ -755,6 +1303,7 @@ def get_nodes_info(node_name: str = "") -> dict[str, Any]:
 
     Args:
         node_name: Name of a specific Kubernetes node to inspect. If empty, retrieves and analyzes all nodes in the cluster.
+        impersonate_user: Optional Kubernetes user identity (e.g. SPIFFE ID) to impersonate.
 
     Returns:
         A dictionary containing the status ('SUCCESS' or 'ERROR'), total_nodes,
@@ -764,7 +1313,7 @@ def get_nodes_info(node_name: str = "") -> dict[str, Any]:
     node_name = node_name.strip() if node_name else ""
 
     # Strategy 1: Attempt retrieval via Kubernetes Python API client
-    api_client = _get_k8s_client()
+    api_client = _get_k8s_client(impersonate_user=impersonate_user)
     if api_client is not None:
         try:
             from kubernetes.client.exceptions import ApiException
@@ -804,7 +1353,7 @@ def get_nodes_info(node_name: str = "") -> dict[str, Any]:
         except ApiException as e:
             return {
                 "status": "ERROR",
-                "message": f"Kubernetes API error (HTTP {e.status}): {e.reason or e.body or str(e)}",
+                "message": _format_k8s_api_error(e),
                 "node_name": node_name,
             }
         except Exception:
@@ -814,6 +1363,8 @@ def get_nodes_info(node_name: str = "") -> dict[str, Any]:
     # Strategy 2: Fallback to kubectl CLI
     cmd = ["kubectl", "get", "nodes"] if not node_name else ["kubectl", "get", "node", node_name]
     cmd.extend(["-o", "json"])
+    if impersonate_user:
+        cmd.append(f"--as={impersonate_user}")
 
     try:
         proc = subprocess.run(

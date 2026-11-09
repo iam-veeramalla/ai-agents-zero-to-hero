@@ -1,0 +1,132 @@
+# Copyright 2026 Google LLC
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     https://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+---
+# ==============================================================================
+# LEAST-PRIVILEGE POLICY FOR AGENT SPIFFE IDENTITY
+# ==============================================================================
+# SPIFFE Identity:
+#   spiffe://agents.global.org-310633432312.system.id.goog/resources/aiplatform/projects/1098749337818/locations/us-east1/reasoningEngines/2253300647057162240
+#
+# Permitted Tools (Read-Only):
+#   - list_pods                     (core/v1: pods [get, list])
+#   - get_pod_logs                  (core/v1: pods/log [get])
+#   - get_pod_events                (core/v1 & events.k8s.io: events [get, list])
+#   - get_deployment_history        (apps/v1: deployments, replicasets [get, list])
+#   - get_nodes_info                (core/v1: nodes [get, list])
+#   - investigate_kubernetes_logs   (local offline log forensics - 0 K8s API perms)
+#
+# Explicitly Denied Operations:
+#   - Mutations (restart_deployment): DENIED (no patch/update/create/delete verbs)
+#   - Secrets (get_secret):           DENIED (secrets resource excluded & denied)
+# ==============================================================================
+
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: k8s-agent-spiffe-readonly-role
+  labels:
+    app.kubernetes.io/name: k8s-investigator
+    app.kubernetes.io/component: rbac-policy
+    security.spiffe.io/enforcement: least-privilege
+rules:
+  # 1. list_pods & get_pod_logs
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["get", "list"]
+  - apiGroups: [""]
+    resources: ["pods/log"]
+    verbs: ["get"]
+
+  # 2. get_pod_events
+  - apiGroups: ["", "events.k8s.io"]
+    resources: ["events"]
+    verbs: ["get", "list"]
+
+  # 3. get_deployment_history
+  - apiGroups: ["apps"]
+    resources: ["deployments", "replicasets"]
+    verbs: ["get", "list"]
+
+  # 4. get_nodes_info
+  - apiGroups: [""]
+    resources: ["nodes"]
+    verbs: ["get", "list"]
+
+  # Note: 'secrets' is intentionally omitted to deny get_secret.
+  # Note: 'patch', 'update', 'create', 'delete' are omitted to deny restart_deployment.
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: k8s-agent-spiffe-readonly-rolebinding
+  labels:
+    app.kubernetes.io/name: k8s-investigator
+    app.kubernetes.io/component: rbac-policy
+subjects:
+  - kind: User
+    name: spiffe://agents.global.org-310633432312.system.id.goog/resources/aiplatform/projects/1098749337818/locations/us-east1/reasoningEngines/2253300647057162240
+    apiGroup: rbac.authorization.k8s.io
+roleRef:
+  kind: ClusterRole
+  name: k8s-agent-spiffe-readonly-role
+  apiGroup: rbac.authorization.k8s.io
+
+---
+# ==============================================================================
+# VALIDATING ADMISSION POLICY: EXPLICIT DENY FOR MUTATIONS AND SECRETS
+# ==============================================================================
+# Enforces an explicit deny at admission time for any requests originating from
+# the agent's SPIFFE identity targeting secrets (get_secret) or mutating resources
+# (restart_deployment).
+# ==============================================================================
+
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicy
+metadata:
+  name: agent-spiffe-least-privilege-deny
+  labels:
+    app.kubernetes.io/name: k8s-investigator
+    app.kubernetes.io/component: admission-policy
+spec:
+  failurePolicy: Fail
+  matchConstraints:
+    resourceRules:
+      - apiGroups: ["*"]
+        apiVersions: ["*"]
+        operations: ["*"]
+        resources: ["*"]
+  validations:
+    # Explicitly deny all mutation operations (prevents restart_deployment and any resource alteration)
+    - expression: "!(request.userInfo.username.startsWith('spiffe://agents.global.org-310633432312.system.id.goog/') && request.operation in ['CREATE', 'UPDATE', 'PATCH', 'DELETE'])"
+      messageExpression: "'Policy Violation: Agent SPIFFE identity ' + request.userInfo.username + ' is restricted to read-only tools and cannot execute mutations (restart_deployment is explicitly denied).'"
+      reason: Forbidden
+
+    # Explicitly deny any access or admission on secrets (prevents get_secret)
+    - expression: "!(request.userInfo.username.startsWith('spiffe://agents.global.org-310633432312.system.id.goog/') && request.resource.resource == 'secrets')"
+      messageExpression: "'Policy Violation: Agent SPIFFE identity ' + request.userInfo.username + ' is explicitly denied access to secrets (get_secret is forbidden).'"
+      reason: Forbidden
+
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicyBinding
+metadata:
+  name: agent-spiffe-least-privilege-binding
+  labels:
+    app.kubernetes.io/name: k8s-investigator
+    app.kubernetes.io/component: admission-policy
+spec:
+  policyName: agent-spiffe-least-privilege-deny
+  validationActions: [Deny]
